@@ -16,5 +16,12 @@ struct Qwen3TTSApp: App {
             MainView(model: model)
         }
         .defaultSize(width: 860, height: 540)
+
+        Settings {
+            SettingsView(model: model, settings: model.settings)
+                .onChange(of: model.settings.modelRepo) {
+                    model.applyModelSelection()
+                }
+        }
     }
 }

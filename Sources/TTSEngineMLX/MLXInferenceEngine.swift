@@ -11,12 +11,11 @@ public final class MLXInferenceEngine: InferenceEngine {
     /// MVP 默认模型：预置音色变体，8bit 量化
     public static let defaultModelRepo = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
 
-    /// 与播放缓冲匹配的流式分块间隔（秒）
-    private let streamingInterval: Double
+    public let modelRepo: String
     private let loader: ModelLoader
 
-    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo, streamingInterval: Double = 0.32) {
-        self.streamingInterval = streamingInterval
+    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo) {
+        self.modelRepo = modelRepo
         self.loader = ModelLoader(modelRepo: modelRepo)
     }
 
@@ -25,22 +24,26 @@ public final class MLXInferenceEngine: InferenceEngine {
         _ = try await loader.model()
     }
 
-    public func synthesize(text: String, voice: Voice) -> AsyncThrowingStream<AudioChunk, Error> {
+    public func synthesize(text: String, voice: Voice, options: SynthesisOptions) -> AsyncThrowingStream<AudioChunk, Error> {
         let loader = loader
-        let streamingInterval = streamingInterval
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let model = try await loader.model()
                     let sampleRate = Double(model.sampleRate)
+                    // CustomVoice 以 "speaker, 指令" 形式携带风格指令
+                    let voicePrompt = options.instruction.map { "\(voice.id), \($0)" } ?? voice.id
+                    var parameters = model.defaultGenerationParameters
+                    if let temperature = options.temperature { parameters.temperature = temperature }
+                    if let topP = options.topP { parameters.topP = topP }
                     let stream = model.generateStream(
                         text: text,
-                        voice: voice.id,
+                        voice: voicePrompt,
                         refAudio: nil,
                         refText: nil,
-                        language: nil,
-                        generationParameters: model.defaultGenerationParameters,
-                        streamingInterval: streamingInterval
+                        language: options.language,
+                        generationParameters: parameters,
+                        streamingInterval: options.streamingInterval ?? 0.32
                     )
                     for try await event in stream {
                         try Task.checkCancellation()

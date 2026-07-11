@@ -76,6 +76,9 @@ struct MainView: View {
 
     private var controlBar: some View {
         VStack(spacing: 10) {
+            TextField("风格指令（可选），如：用温柔的语气慢慢说", text: $model.instruction)
+                .textFieldStyle(.roundedBorder)
+                .disabled(model.isSynthesizing)
             HStack(spacing: 12) {
                 voicePicker
                 Spacer()

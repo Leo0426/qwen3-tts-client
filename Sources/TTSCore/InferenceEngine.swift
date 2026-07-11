@@ -15,11 +15,47 @@ public struct AudioChunk: Sendable {
     }
 }
 
-/// 全 App 最核心的契约：给文本和音色，返回音频块流。
+/// 合成选项。所有字段 nil 即模型默认值，保证零配置可用。
+public struct SynthesisOptions: Equatable, Sendable {
+    /// 风格指令（如“用温柔的语气慢慢说”）；nil 不加指令
+    public var instruction: String?
+    /// 语言（模型期望英文名，如 "Chinese"）；nil 自动检测
+    public var language: String?
+    /// 采样温度；nil 用模型默认（0.9）
+    public var temperature: Float?
+    /// nucleus 采样 top-p；nil 用模型默认（1.0）
+    public var topP: Float?
+    /// 流式分块间隔（秒）；nil 用默认 0.32
+    public var streamingInterval: Double?
+
+    public static let `default` = SynthesisOptions()
+
+    public init(
+        instruction: String? = nil,
+        language: String? = nil,
+        temperature: Float? = nil,
+        topP: Float? = nil,
+        streamingInterval: Double? = nil
+    ) {
+        self.instruction = instruction
+        self.language = language
+        self.temperature = temperature
+        self.topP = topP
+        self.streamingInterval = streamingInterval
+    }
+}
+
+/// 全 App 最核心的契约：给文本、音色和选项，返回音频块流。
 /// 运行时（MLX / CoreML / Fake）的全部细节都必须藏在这个接口后面。
 /// 取消消费方的 Task 必须终止流并释放推理资源。
 public protocol InferenceEngine: Sendable {
-    func synthesize(text: String, voice: Voice) -> AsyncThrowingStream<AudioChunk, Error>
+    func synthesize(text: String, voice: Voice, options: SynthesisOptions) -> AsyncThrowingStream<AudioChunk, Error>
+}
+
+public extension InferenceEngine {
+    func synthesize(text: String, voice: Voice) -> AsyncThrowingStream<AudioChunk, Error> {
+        synthesize(text: text, voice: voice, options: .default)
+    }
 }
 
 public enum InferenceError: LocalizedError {

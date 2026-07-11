@@ -15,7 +15,7 @@ public struct FakeInferenceEngine: InferenceEngine {
         self.chunkDuration = chunkDuration
     }
 
-    public func synthesize(text: String, voice: Voice) -> AsyncThrowingStream<AudioChunk, Error> {
+    public func synthesize(text: String, voice: Voice, options: SynthesisOptions) -> AsyncThrowingStream<AudioChunk, Error> {
         let sampleRate = sampleRate
         let firstChunkDelay = firstChunkDelay
         let chunkDuration = chunkDuration

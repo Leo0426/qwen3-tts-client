@@ -11,6 +11,11 @@ final class AppModel {
     var voice: Voice = Voice.default {
         didSet { UserDefaults.standard.set(voice.id, forKey: "lastVoiceID") }
     }
+    /// 风格指令（随合成传给模型，如“用温柔的语气慢慢说”）
+    var instruction: String = "" {
+        didSet { UserDefaults.standard.set(instruction, forKey: "lastInstruction") }
+    }
+    let settings = AppSettings()
 
     private(set) var isSynthesizing = false
     private(set) var errorMessage: String?
@@ -20,11 +25,11 @@ final class AppModel {
     let player = StreamingAudioPlayer()
     let history: HistoryStore
     /// 首次启动模型下载引导；假引擎模式下为 nil（视为就绪）
-    let modelManager: MLXModelManager?
+    private(set) var modelManager: MLXModelManager?
 
     // MLX 引擎为默认（ADR-0001）；QWEN3TTS_FAKE_ENGINE=1 时用假引擎跑 UI 快速内循环
-    private let engine: any InferenceEngine
-    private let mlxEngine: MLXInferenceEngine?
+    private var engine: any InferenceEngine
+    private var mlxEngine: MLXInferenceEngine?
     private var synthesisTask: Task<Void, Never>?
 
     init(historyDirectory: URL? = nil) {
@@ -34,10 +39,10 @@ final class AppModel {
             mlxEngine = nil
             modelManager = nil
         } else {
-            let mlx = MLXInferenceEngine()
+            let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
             engine = mlx
             mlxEngine = mlx
-            modelManager = MLXModelManager()
+            modelManager = MLXModelManager(modelRepo: settings.modelRepo)
             modelManager?.refresh()
             warmUpIfReady()
         }
@@ -45,6 +50,18 @@ final class AppModel {
            let savedVoice = Voice.presets.first(where: { $0.id == savedVoiceID }) {
             voice = savedVoice
         }
+        instruction = UserDefaults.standard.string(forKey: "lastInstruction") ?? ""
+    }
+
+    /// 设置里切换模型规格后重建引擎与模型管理器；未下载时引导页自然出现
+    func applyModelSelection() {
+        guard let currentEngine = mlxEngine, currentEngine.modelRepo != settings.modelRepo else { return }
+        let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
+        engine = mlx
+        mlxEngine = mlx
+        modelManager = MLXModelManager(modelRepo: settings.modelRepo)
+        modelManager?.refresh()
+        warmUpIfReady()
     }
 
     // MARK: - 模型就绪
@@ -87,11 +104,12 @@ final class AppModel {
         firstChunkLatency = nil
         isSynthesizing = true
 
+        let options = settings.makeSynthesisOptions(instruction: instruction)
         synthesisTask = Task {
             let started = ContinuousClock.now
             do {
                 try player.beginStreaming(sampleRate: 24_000)
-                for try await chunk in engine.synthesize(text: inputText, voice: inputVoice) {
+                for try await chunk in engine.synthesize(text: inputText, voice: inputVoice, options: options) {
                     if firstChunkLatency == nil {
                         firstChunkLatency = started.duration(to: .now).seconds
                     }
