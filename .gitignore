@@ -1,0 +1,6 @@
+.build/
+.xcbuild/
+.swiftpm/
+.DS_Store
+*.wav
+*.profraw
