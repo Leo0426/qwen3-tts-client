@@ -6,6 +6,7 @@ struct MainView: View {
     @State private var showHistory = true
     @State private var showModelInfo = false
     @State private var showCloneSheet = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         HSplitView {
@@ -36,6 +37,14 @@ struct MainView: View {
                     .popover(isPresented: $showModelInfo, arrowEdge: .bottom) {
                         ModelInfoPopover(manager: manager)
                     }
+                }
+                ToolbarItem {
+                    Button {
+                        openWindow(id: "model-downloads")
+                    } label: {
+                        Label("模型下载", systemImage: "arrow.down.circle")
+                    }
+                    .help("模型下载中心：下载、删除、存储位置")
                 }
             }
             ToolbarItem(placement: .primaryAction) {

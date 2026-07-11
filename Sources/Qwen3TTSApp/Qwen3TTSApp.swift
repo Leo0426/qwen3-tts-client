@@ -17,6 +17,17 @@ struct Qwen3TTSApp: App {
         }
         .defaultSize(width: 860, height: 540)
 
+        Window("模型下载", id: "model-downloads") {
+            ModelDownloadView(model: model, settings: model.settings)
+                .onChange(of: model.settings.downloadSource) {
+                    model.applyDownloadSource()
+                }
+                .onChange(of: model.settings.customEndpoint) {
+                    model.applyDownloadSource()
+                }
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             SettingsView(model: model, settings: model.settings)
                 .onChange(of: model.settings.modelRepo) {

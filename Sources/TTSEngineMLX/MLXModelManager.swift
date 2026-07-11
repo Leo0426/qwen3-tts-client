@@ -24,10 +24,17 @@ public final class MLXModelManager {
     /// 引导页提示用的下载体积估算（0.6B-CustomVoice-8bit 实测约 1.8 GB）
     public static let approximateDownloadBytes: Int64 = 1_900_000_000
 
-    private let cache = HubCache.default
+    private let cache: HubCache
 
-    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo) {
+    /// - Parameter cacheDirectory: 模型存储根目录；nil 用默认（~/.cache/huggingface/hub）
+    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo, cacheDirectory: URL? = nil) {
         self.modelRepo = modelRepo
+        self.cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
+    }
+
+    /// 默认存储根目录（UI 展示用）
+    public static var defaultCacheDirectory: URL {
+        HubCache.default.cacheDirectory
     }
 
     public func refresh() {

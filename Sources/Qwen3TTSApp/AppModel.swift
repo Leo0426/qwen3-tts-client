@@ -49,6 +49,7 @@ final class AppModel {
     let player = StreamingAudioPlayer()
     let history: HistoryStore
     let clonedVoices: ClonedVoiceStore
+    let modelLibrary: ModelLibrary
 
     // 预置音色走 CustomVoice 模型，克隆走 Base 模型（带 speaker encoder），
     // 各自有独立的引擎与下载管理；QWEN3TTS_FAKE_ENGINE=1 时用假引擎跑 UI 快速内循环
@@ -70,17 +71,19 @@ final class AppModel {
     init(historyDirectory: URL? = nil, voicesDirectory: URL? = nil) {
         history = HistoryStore(directory: historyDirectory)
         clonedVoices = ClonedVoiceStore(directory: voicesDirectory)
+        modelLibrary = ModelLibrary(
+            cacheDirectory: settings.resolvedStorageURL,
+            downloadHost: settings.resolvedDownloadHost
+        )
         if ProcessInfo.processInfo.environment["QWEN3TTS_FAKE_ENGINE"] == "1" {
             presetEngine = FakeInferenceEngine()
             presetMLXEngine = nil
             presetManager = nil
         } else {
-            let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
+            let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo, cacheDirectory: settings.resolvedStorageURL)
             presetEngine = mlx
             presetMLXEngine = mlx
-            presetManager = MLXModelManager(modelRepo: settings.modelRepo)
-            presetManager?.downloadHost = settings.resolvedDownloadHost
-            presetManager?.refresh()
+            presetManager = modelLibrary.manager(for: settings.modelRepo)
         }
         restoreVoiceSelection()
         instruction = UserDefaults.standard.string(forKey: "lastInstruction") ?? ""
@@ -151,13 +154,28 @@ final class AppModel {
     /// 设置里切换模型规格后重建两套引擎与管理器；未下载时引导页自然出现
     func applyModelSelection() {
         guard let current = presetMLXEngine, current.modelRepo != settings.modelRepo else { return }
-        let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
+        rebuildEngines()
+    }
+
+    /// 设置里改下载源后同步到全部管理器（对下一次下载生效）
+    func applyDownloadSource() {
+        modelLibrary.setDownloadHost(settings.resolvedDownloadHost)
+    }
+
+    /// 更改模型存储路径：管理器与引擎全部重建（不迁移已下载文件）
+    func applyStorageDirectory() {
+        guard !isFakeMode else { return }
+        modelLibrary.setCacheDirectory(settings.resolvedStorageURL)
+        rebuildEngines()
+    }
+
+    private func rebuildEngines() {
+        guard !isFakeMode else { return }
+        let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo, cacheDirectory: settings.resolvedStorageURL)
         presetEngine = mlx
         presetMLXEngine = mlx
         presetLoadState = .unloaded
-        presetManager = MLXModelManager(modelRepo: settings.modelRepo)
-        presetManager?.downloadHost = settings.resolvedDownloadHost
-        presetManager?.refresh()
+        presetManager = modelLibrary.manager(for: settings.modelRepo)
         cloneEngine = nil
         cloneManager = nil
         cloneLoadState = .unloaded
@@ -165,20 +183,12 @@ final class AppModel {
         warmUpActiveEngineIfReady()
     }
 
-    /// 设置里改下载源后同步到两个管理器（对下一次下载生效）
-    func applyDownloadSource() {
-        presetManager?.downloadHost = settings.resolvedDownloadHost
-        cloneManager?.downloadHost = settings.resolvedDownloadHost
-    }
-
     /// 首次选中克隆音色时，惰性创建 Base 模型的引擎与管理器
     private func ensureCloneInfrastructureIfNeeded() {
         guard usingClone, !isFakeMode, cloneManager == nil else { return }
-        cloneEngine = MLXInferenceEngine(modelRepo: settings.baseModelRepo)
+        cloneEngine = MLXInferenceEngine(modelRepo: settings.baseModelRepo, cacheDirectory: settings.resolvedStorageURL)
         cloneLoadState = .unloaded
-        cloneManager = MLXModelManager(modelRepo: settings.baseModelRepo)
-        cloneManager?.downloadHost = settings.resolvedDownloadHost
-        cloneManager?.refresh()
+        cloneManager = modelLibrary.manager(for: settings.baseModelRepo)
         warmUpActiveEngineIfReady()
     }
 

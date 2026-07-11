@@ -6,42 +6,18 @@ struct SettingsView: View {
     let model: AppModel
     @Bindable var settings: AppSettings
 
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         Form {
             modelSection
-            downloadSection
             loadManagementSection
             languageSection
             samplingSection
             streamingSection
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 620)
-    }
-
-    private var downloadSection: some View {
-        Section("模型下载") {
-            Picker("下载源", selection: $settings.downloadSource) {
-                ForEach(AppSettings.DownloadSource.allCases, id: \.self) { source in
-                    Text(source.label).tag(source)
-                }
-            }
-            if settings.downloadSource == .custom {
-                TextField("https://your-mirror.example.com", text: $settings.customEndpoint)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                if settings.customEndpoint.isEmpty == false,
-                   settings.resolvedDownloadHost.absoluteString == "https://huggingface.co",
-                   settings.customEndpoint.trimmingCharacters(in: .whitespaces) != "https://huggingface.co" {
-                    Label("地址无效，将回落到官方源", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-            Text("对下一次下载生效。国内网络建议使用镜像源。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+        .frame(width: 460, height: 560)
     }
 
     private var loadManagementSection: some View {
@@ -111,6 +87,10 @@ struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.orange)
             }
+            Button("打开模型下载中心…") {
+                openWindow(id: "model-downloads")
+            }
+            .buttonStyle(.link)
         }
     }
 

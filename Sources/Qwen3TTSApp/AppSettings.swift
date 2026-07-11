@@ -70,6 +70,16 @@ final class AppSettings {
     var autoWarmUp: Bool {
         didSet { defaults.set(autoWarmUp, forKey: "autoWarmUp") }
     }
+    /// 模型存储根目录；空 = 默认（~/.cache/huggingface/hub）
+    var modelStoragePath: String {
+        didSet { defaults.set(modelStoragePath, forKey: "modelStoragePath") }
+    }
+
+    /// nil = 默认目录
+    var resolvedStorageURL: URL? {
+        let trimmed = modelStoragePath.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed, isDirectory: true)
+    }
 
     /// 当前生效的下载地址；自定义地址无效时回落官方源
     var resolvedDownloadHost: URL {
@@ -112,6 +122,7 @@ final class AppSettings {
         downloadSource = DownloadSource(rawValue: defaults.string(forKey: "downloadSource") ?? "") ?? .official
         customEndpoint = defaults.string(forKey: "customEndpoint") ?? ""
         autoWarmUp = defaults.object(forKey: "autoWarmUp") as? Bool ?? true
+        modelStoragePath = defaults.string(forKey: "modelStoragePath") ?? ""
         useCustomSampling = defaults.bool(forKey: "useCustomSampling")
         temperature = defaults.object(forKey: "temperature") as? Double ?? 0.9
         topP = defaults.object(forKey: "topP") as? Double ?? 1.0

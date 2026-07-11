@@ -1,4 +1,5 @@
 import Foundation
+import HuggingFace
 import MLX
 import MLXAudioCore
 import MLXAudioTTS
@@ -14,9 +15,10 @@ public final class MLXInferenceEngine: InferenceEngine {
     public let modelRepo: String
     private let loader: ModelLoader
 
-    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo) {
+    /// - Parameter cacheDirectory: 模型存储根目录；nil 用默认，需与 MLXModelManager 一致
+    public init(modelRepo: String = MLXInferenceEngine.defaultModelRepo, cacheDirectory: URL? = nil) {
         self.modelRepo = modelRepo
-        self.loader = ModelLoader(modelRepo: modelRepo)
+        self.loader = ModelLoader(modelRepo: modelRepo, cacheDirectory: cacheDirectory)
     }
 
     /// 预热：提前加载模型（首次会触发权重下载），让首次合成不吃加载延迟。
@@ -100,17 +102,19 @@ public final class MLXInferenceEngine: InferenceEngine {
 /// 模型只加载一次并复用；用 actor 串行化并发的首次加载。
 private actor ModelLoader {
     private let modelRepo: String
+    private let cache: HubCache
     private var loaded: SpeechGenerationModel?
 
-    init(modelRepo: String) {
+    init(modelRepo: String, cacheDirectory: URL?) {
         self.modelRepo = modelRepo
+        self.cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
         // 限制 MLX 缓冲缓存，避免长会话内存膨胀（与上游 CLI 同值）
         Memory.cacheLimit = 256 * 1024 * 1024
     }
 
     func model() async throws -> SpeechGenerationModel {
         if let loaded { return loaded }
-        let model = try await TTS.loadModel(modelRepo: modelRepo)
+        let model = try await TTS.loadModel(modelRepo: modelRepo, cache: cache)
         loaded = model
         return model
     }
