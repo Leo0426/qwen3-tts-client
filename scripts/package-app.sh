@@ -30,6 +30,7 @@ cp "$PRODUCTS/Qwen3TTSApp" "$APP/Contents/MacOS/"
 for bundle in "$PRODUCTS"/*.bundle; do
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
+cp assets/icon/AppIcon.icns "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -42,6 +43,7 @@ cat > "$APP/Contents/Info.plist" << PLIST
     <key>CFBundleDisplayName</key><string>Qwen3 TTS</string>
     <key>CFBundleIdentifier</key><string>dev.leolu.qwen3-tts</string>
     <key>CFBundleExecutable</key><string>Qwen3TTSApp</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
