@@ -1,5 +1,6 @@
 .build/
 .xcbuild/
+dist/
 .swiftpm/
 .DS_Store
 *.wav
