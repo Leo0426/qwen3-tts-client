@@ -31,9 +31,12 @@ public final class StreamingAudioPlayer {
         Double(samples.count) / sampleRate
     }
 
-    /// 当前播放进度（秒）
+    /// 当前播放进度（秒）。
+    /// 节点未挂载到引擎时 lastRenderTime 会抛 NSException（UI 可能在
+    /// beginStreaming 之前渲染进度条），必须先判 engine。
     public var playbackTime: TimeInterval {
-        guard let nodeTime = playerNode.lastRenderTime,
+        guard playerNode.engine != nil,
+              let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
             return state == .finished ? bufferedDuration : 0
         }
@@ -89,7 +92,9 @@ public final class StreamingAudioPlayer {
     }
 
     public func stop() {
-        playerNode.stop()
+        if playerNode.engine != nil {
+            playerNode.stop()
+        }
         engine.stop()
         pendingBuffers = 0
         streamEnded = true
