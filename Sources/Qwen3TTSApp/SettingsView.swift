@@ -9,13 +9,94 @@ struct SettingsView: View {
     var body: some View {
         Form {
             modelSection
+            downloadSection
+            loadManagementSection
             languageSection
             samplingSection
             streamingSection
         }
         .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 460, height: 620)
+    }
+
+    private var downloadSection: some View {
+        Section("模型下载") {
+            Picker("下载源", selection: $settings.downloadSource) {
+                ForEach(AppSettings.DownloadSource.allCases, id: \.self) { source in
+                    Text(source.label).tag(source)
+                }
+            }
+            if settings.downloadSource == .custom {
+                TextField("https://your-mirror.example.com", text: $settings.customEndpoint)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                if settings.customEndpoint.isEmpty == false,
+                   settings.resolvedDownloadHost.absoluteString == "https://huggingface.co",
+                   settings.customEndpoint.trimmingCharacters(in: .whitespaces) != "https://huggingface.co" {
+                    Label("地址无效，将回落到官方源", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Text("对下一次下载生效。国内网络建议使用镜像源。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var loadManagementSection: some View {
+        Section("加载管理") {
+            Toggle("模型就绪后自动加载进内存", isOn: $settings.autoWarmUp)
+            if let manager = model.presetModelManager {
+                loadRow(
+                    title: "预置音色模型",
+                    subtitle: manager.modelRepo.components(separatedBy: "/").last ?? "",
+                    ready: manager.state == .ready,
+                    state: model.loadState(clone: false),
+                    clone: false
+                )
+            }
+            if let manager = model.cloneModelManager {
+                loadRow(
+                    title: "克隆音色模型",
+                    subtitle: manager.modelRepo.components(separatedBy: "/").last ?? "",
+                    ready: manager.state == .ready,
+                    state: model.loadState(clone: true),
+                    clone: true
+                )
+            }
+            Text("加载后合成即时响应；卸载可释放内存，下次合成自动重新加载（约 3 秒）。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func loadRow(title: String, subtitle: String, ready: Bool, state: ModelLoadState, clone: Bool) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Text(ready ? state.label : "未下载")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                switch state {
+                case .unloaded:
+                    Button("加载") { model.warmUpModel(clone: clone) }
+                        .disabled(!ready)
+                case .loading:
+                    ProgressView().controlSize(.small)
+                case .loaded:
+                    Button("卸载") { model.unloadModel(clone: clone) }
+                        .disabled(model.isSynthesizing)
+                }
+            }
+        } label: {
+            VStack(alignment: .leading) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private var modelSection: some View {

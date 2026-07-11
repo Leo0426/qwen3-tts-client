@@ -18,6 +18,8 @@ public final class MLXModelManager {
 
     public let modelRepo: String
     public private(set) var state: State = .checking
+    /// 下载源（HF 官方 / 镜像 / 自定义），对下一次下载生效
+    public var downloadHost: URL = HubClient.defaultHost
 
     /// 引导页提示用的下载体积估算（0.6B-CustomVoice-8bit 实测约 1.8 GB）
     public static let approximateDownloadBytes: Int64 = 1_900_000_000
@@ -90,7 +92,7 @@ public final class MLXModelManager {
         state = .downloading(fraction: 0, completedBytes: 0, totalBytes: 0)
         do {
             _ = try await ModelUtils.resolveOrDownloadModel(
-                client: HubClient(cache: cache),
+                client: HubClient(host: downloadHost, cache: cache),
                 cache: cache,
                 repoID: repoID,
                 requiredExtension: "safetensors",

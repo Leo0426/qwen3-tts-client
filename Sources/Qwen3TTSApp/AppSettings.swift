@@ -43,8 +43,46 @@ final class AppSettings {
         ("平滑（0.64s 分块）", 0.64),
     ]
 
+    enum DownloadSource: String, CaseIterable {
+        case official
+        case mirror
+        case custom
+
+        var label: String {
+            switch self {
+            case .official: return "官方 huggingface.co"
+            case .mirror: return "镜像 hf-mirror.com"
+            case .custom: return "自定义…"
+            }
+        }
+    }
+
     var modelRepo: String {
         didSet { defaults.set(modelRepo, forKey: "modelRepo") }
+    }
+    var downloadSource: DownloadSource {
+        didSet { defaults.set(downloadSource.rawValue, forKey: "downloadSource") }
+    }
+    var customEndpoint: String {
+        didSet { defaults.set(customEndpoint, forKey: "customEndpoint") }
+    }
+    /// 启动或模型就绪后是否自动把模型加载进内存
+    var autoWarmUp: Bool {
+        didSet { defaults.set(autoWarmUp, forKey: "autoWarmUp") }
+    }
+
+    /// 当前生效的下载地址；自定义地址无效时回落官方源
+    var resolvedDownloadHost: URL {
+        switch downloadSource {
+        case .official: return URL(string: "https://huggingface.co")!
+        case .mirror: return URL(string: "https://hf-mirror.com")!
+        case .custom:
+            let trimmed = customEndpoint.trimmingCharacters(in: .whitespaces)
+            if let url = URL(string: trimmed), url.scheme?.hasPrefix("http") == true {
+                return url
+            }
+            return URL(string: "https://huggingface.co")!
+        }
     }
     /// nil = 自动检测
     var language: String? {
@@ -71,6 +109,9 @@ final class AppSettings {
         let savedRepo = defaults.string(forKey: "modelRepo")
         modelRepo = Self.modelOptions.contains { $0.repo == savedRepo } ? savedRepo! : Self.modelOptions[0].repo
         language = defaults.string(forKey: "language")
+        downloadSource = DownloadSource(rawValue: defaults.string(forKey: "downloadSource") ?? "") ?? .official
+        customEndpoint = defaults.string(forKey: "customEndpoint") ?? ""
+        autoWarmUp = defaults.object(forKey: "autoWarmUp") as? Bool ?? true
         useCustomSampling = defaults.bool(forKey: "useCustomSampling")
         temperature = defaults.object(forKey: "temperature") as? Double ?? 0.9
         topP = defaults.object(forKey: "topP") as? Double ?? 1.0

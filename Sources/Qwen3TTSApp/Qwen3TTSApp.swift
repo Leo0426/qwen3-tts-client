@@ -22,6 +22,12 @@ struct Qwen3TTSApp: App {
                 .onChange(of: model.settings.modelRepo) {
                     model.applyModelSelection()
                 }
+                .onChange(of: model.settings.downloadSource) {
+                    model.applyDownloadSource()
+                }
+                .onChange(of: model.settings.customEndpoint) {
+                    model.applyDownloadSource()
+                }
         }
     }
 }

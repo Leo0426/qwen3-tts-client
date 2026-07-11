@@ -24,6 +24,15 @@ public final class MLXInferenceEngine: InferenceEngine {
         _ = try await loader.model()
     }
 
+    /// 卸载模型释放内存；下次合成会重新加载。
+    public func unload() async {
+        await loader.unload()
+    }
+
+    public var isLoaded: Bool {
+        get async { await loader.isLoaded }
+    }
+
     public func synthesize(text: String, voice: Voice, options: SynthesisOptions) -> AsyncThrowingStream<AudioChunk, Error> {
         let loader = loader
         return AsyncThrowingStream { continuation in
@@ -104,5 +113,11 @@ private actor ModelLoader {
         let model = try await TTS.loadModel(modelRepo: modelRepo)
         loaded = model
         return model
+    }
+
+    var isLoaded: Bool { loaded != nil }
+
+    func unload() {
+        loaded = nil
     }
 }

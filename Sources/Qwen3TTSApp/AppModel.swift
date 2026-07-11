@@ -10,6 +10,21 @@ enum VoiceSelection: Hashable {
     case clone(UUID)
 }
 
+/// 模型在内存中的加载状态（加载管理用）
+enum ModelLoadState: Equatable {
+    case unloaded
+    case loading
+    case loaded
+
+    var label: String {
+        switch self {
+        case .unloaded: return "未加载"
+        case .loading: return "加载中…"
+        case .loaded: return "已加载（约 2 GB 内存）"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -45,6 +60,13 @@ final class AppModel {
     private var synthesisTask: Task<Void, Never>?
     private var isFakeMode: Bool { presetMLXEngine == nil }
 
+    private(set) var presetLoadState: ModelLoadState = .unloaded
+    private(set) var cloneLoadState: ModelLoadState = .unloaded
+
+    /// 设置页加载管理用的只读访问
+    var presetModelManager: MLXModelManager? { presetManager }
+    var cloneModelManager: MLXModelManager? { cloneManager }
+
     init(historyDirectory: URL? = nil, voicesDirectory: URL? = nil) {
         history = HistoryStore(directory: historyDirectory)
         clonedVoices = ClonedVoiceStore(directory: voicesDirectory)
@@ -57,6 +79,7 @@ final class AppModel {
             presetEngine = mlx
             presetMLXEngine = mlx
             presetManager = MLXModelManager(modelRepo: settings.modelRepo)
+            presetManager?.downloadHost = settings.resolvedDownloadHost
             presetManager?.refresh()
         }
         restoreVoiceSelection()
@@ -131,30 +154,79 @@ final class AppModel {
         let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
         presetEngine = mlx
         presetMLXEngine = mlx
+        presetLoadState = .unloaded
         presetManager = MLXModelManager(modelRepo: settings.modelRepo)
+        presetManager?.downloadHost = settings.resolvedDownloadHost
         presetManager?.refresh()
         cloneEngine = nil
         cloneManager = nil
+        cloneLoadState = .unloaded
         ensureCloneInfrastructureIfNeeded()
         warmUpActiveEngineIfReady()
+    }
+
+    /// 设置里改下载源后同步到两个管理器（对下一次下载生效）
+    func applyDownloadSource() {
+        presetManager?.downloadHost = settings.resolvedDownloadHost
+        cloneManager?.downloadHost = settings.resolvedDownloadHost
     }
 
     /// 首次选中克隆音色时，惰性创建 Base 模型的引擎与管理器
     private func ensureCloneInfrastructureIfNeeded() {
         guard usingClone, !isFakeMode, cloneManager == nil else { return }
         cloneEngine = MLXInferenceEngine(modelRepo: settings.baseModelRepo)
+        cloneLoadState = .unloaded
         cloneManager = MLXModelManager(modelRepo: settings.baseModelRepo)
+        cloneManager?.downloadHost = settings.resolvedDownloadHost
         cloneManager?.refresh()
         warmUpActiveEngineIfReady()
     }
 
-    /// 当前所需模型就绪后后台预热，首次合成不吃加载延迟
+    // MARK: - 加载管理
+
+    /// 当前所需模型就绪后按设置自动预热，首次合成不吃加载延迟
     private func warmUpActiveEngineIfReady() {
-        guard isModelReady else { return }
-        let target: MLXInferenceEngine? = usingClone ? cloneEngine : presetMLXEngine
-        guard let target else { return }
-        Task.detached(priority: .utility) {
-            try? await target.prepare()
+        guard settings.autoWarmUp else { return }
+        warmUpModel(clone: usingClone)
+    }
+
+    /// 手动/自动把模型加载进内存
+    func warmUpModel(clone: Bool) {
+        guard !isFakeMode else { return }
+        let engine = clone ? cloneEngine : presetMLXEngine
+        let manager = clone ? cloneManager : presetManager
+        guard let engine, manager?.state == .ready,
+              loadState(clone: clone) == .unloaded else { return }
+        setLoadState(clone: clone, .loading)
+        Task { [weak self] in
+            do {
+                try await engine.prepare()
+                self?.setLoadState(clone: clone, .loaded)
+            } catch {
+                self?.setLoadState(clone: clone, .unloaded)
+                self?.errorMessage = "模型加载失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 卸载模型释放内存；下次合成会重新加载
+    func unloadModel(clone: Bool) {
+        guard !isSynthesizing, let engine = clone ? cloneEngine : presetMLXEngine else { return }
+        Task { [weak self] in
+            await engine.unload()
+            self?.setLoadState(clone: clone, .unloaded)
+        }
+    }
+
+    func loadState(clone: Bool) -> ModelLoadState {
+        clone ? cloneLoadState : presetLoadState
+    }
+
+    private func setLoadState(clone: Bool, _ state: ModelLoadState) {
+        if clone {
+            cloneLoadState = state
+        } else {
+            presetLoadState = state
         }
     }
 
@@ -178,6 +250,7 @@ final class AppModel {
         let clone = selectedClonedVoice.map { clonedVoices.cloneReference(for: $0) }
         let historyVoiceID = usingClone ? (selectedClonedVoice?.name ?? "克隆音色") : inputVoice.id
         let activeEngine: any InferenceEngine = usingClone ? (cloneEngine ?? presetEngine) : presetEngine
+        let activeIsClone = usingClone
         errorMessage = nil
         firstChunkLatency = nil
         isSynthesizing = true
@@ -190,6 +263,8 @@ final class AppModel {
                 for try await chunk in activeEngine.synthesize(text: inputText, voice: inputVoice, options: options) {
                     if firstChunkLatency == nil {
                         firstChunkLatency = started.duration(to: .now).seconds
+                        // 合成会隐式加载模型，同步到加载管理状态
+                        if !isFakeMode { setLoadState(clone: activeIsClone, .loaded) }
                     }
                     player.enqueue(chunk)
                 }
