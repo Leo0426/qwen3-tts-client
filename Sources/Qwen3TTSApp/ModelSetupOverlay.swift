@@ -45,9 +45,9 @@ struct ModelSetupOverlay: View {
 
     private var needsDownloadContent: some View {
         VStack(spacing: 12) {
-            Text("首次使用需要下载模型")
+            Text("需要下载模型")
                 .font(.headline)
-            Text("Qwen3-TTS 0.6B（约 \(Self.formatBytes(MLXModelManager.approximateDownloadBytes))）\n下载后完全离线运行，文本不离开你的 Mac。")
+            Text("\(manager.modelRepo.components(separatedBy: "/").last ?? manager.modelRepo)\n（约 \(Self.formatBytes(MLXModelManager.approximateDownloadBytes))）下载后完全离线运行，文本不离开你的 Mac。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

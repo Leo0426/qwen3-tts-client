@@ -4,14 +4,23 @@ import Observation
 import TTSCore
 import TTSEngineMLX
 
+/// 当前选中的发声方式：预置音色或克隆音色
+enum VoiceSelection: Hashable {
+    case preset(String)
+    case clone(UUID)
+}
+
 @MainActor
 @Observable
 final class AppModel {
     var text: String = ""
-    var voice: Voice = Voice.default {
-        didSet { UserDefaults.standard.set(voice.id, forKey: "lastVoiceID") }
+    var voiceSelection: VoiceSelection = .preset(Voice.default.id) {
+        didSet {
+            persistVoiceSelection()
+            ensureCloneInfrastructureIfNeeded()
+        }
     }
-    /// 风格指令（随合成传给模型，如“用温柔的语气慢慢说”）
+    /// 风格指令（仅预置音色生效；克隆音色的风格由参考音频决定）
     var instruction: String = "" {
         didSet { UserDefaults.standard.set(instruction, forKey: "lastInstruction") }
     }
@@ -24,72 +33,138 @@ final class AppModel {
 
     let player = StreamingAudioPlayer()
     let history: HistoryStore
-    /// 首次启动模型下载引导；假引擎模式下为 nil（视为就绪）
-    private(set) var modelManager: MLXModelManager?
+    let clonedVoices: ClonedVoiceStore
 
-    // MLX 引擎为默认（ADR-0001）；QWEN3TTS_FAKE_ENGINE=1 时用假引擎跑 UI 快速内循环
-    private var engine: any InferenceEngine
-    private var mlxEngine: MLXInferenceEngine?
+    // 预置音色走 CustomVoice 模型，克隆走 Base 模型（带 speaker encoder），
+    // 各自有独立的引擎与下载管理；QWEN3TTS_FAKE_ENGINE=1 时用假引擎跑 UI 快速内循环
+    private var presetEngine: any InferenceEngine
+    private var presetMLXEngine: MLXInferenceEngine?
+    private var presetManager: MLXModelManager?
+    private var cloneEngine: MLXInferenceEngine?
+    private var cloneManager: MLXModelManager?
     private var synthesisTask: Task<Void, Never>?
+    private var isFakeMode: Bool { presetMLXEngine == nil }
 
-    init(historyDirectory: URL? = nil) {
+    init(historyDirectory: URL? = nil, voicesDirectory: URL? = nil) {
         history = HistoryStore(directory: historyDirectory)
+        clonedVoices = ClonedVoiceStore(directory: voicesDirectory)
         if ProcessInfo.processInfo.environment["QWEN3TTS_FAKE_ENGINE"] == "1" {
-            engine = FakeInferenceEngine()
-            mlxEngine = nil
-            modelManager = nil
+            presetEngine = FakeInferenceEngine()
+            presetMLXEngine = nil
+            presetManager = nil
         } else {
             let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
-            engine = mlx
-            mlxEngine = mlx
-            modelManager = MLXModelManager(modelRepo: settings.modelRepo)
-            modelManager?.refresh()
-            warmUpIfReady()
+            presetEngine = mlx
+            presetMLXEngine = mlx
+            presetManager = MLXModelManager(modelRepo: settings.modelRepo)
+            presetManager?.refresh()
         }
-        if let savedVoiceID = UserDefaults.standard.string(forKey: "lastVoiceID"),
-           let savedVoice = Voice.presets.first(where: { $0.id == savedVoiceID }) {
-            voice = savedVoice
-        }
+        restoreVoiceSelection()
         instruction = UserDefaults.standard.string(forKey: "lastInstruction") ?? ""
+        ensureCloneInfrastructureIfNeeded()
+        warmUpActiveEngineIfReady()
     }
 
-    /// 设置里切换模型规格后重建引擎与模型管理器；未下载时引导页自然出现
-    func applyModelSelection() {
-        guard let currentEngine = mlxEngine, currentEngine.modelRepo != settings.modelRepo else { return }
-        let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
-        engine = mlx
-        mlxEngine = mlx
-        modelManager = MLXModelManager(modelRepo: settings.modelRepo)
-        modelManager?.refresh()
-        warmUpIfReady()
+    // MARK: - 音色选择
+
+    var usingClone: Bool {
+        if case .clone = voiceSelection { return true }
+        return false
     }
 
-    // MARK: - 模型就绪
+    var selectedPresetVoice: Voice {
+        if case .preset(let id) = voiceSelection,
+           let preset = Voice.presets.first(where: { $0.id == id }) {
+            return preset
+        }
+        return .default
+    }
+
+    var selectedClonedVoice: ClonedVoice? {
+        guard case .clone(let id) = voiceSelection else { return nil }
+        return clonedVoices.items.first { $0.id == id }
+    }
+
+    var currentVoiceDisplayName: String {
+        usingClone ? (selectedClonedVoice?.name ?? "克隆音色") : selectedPresetVoice.displayName
+    }
+
+    func addClonedVoice(name: String, transcript: String, sourceAudioURL: URL) {
+        do {
+            let voice = try clonedVoices.add(name: name, transcript: transcript, sourceAudioURL: sourceAudioURL)
+            voiceSelection = .clone(voice.id)
+        } catch {
+            errorMessage = "克隆音色保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    func deleteClonedVoice(_ voice: ClonedVoice) {
+        clonedVoices.delete(voice)
+        if case .clone(let id) = voiceSelection, id == voice.id {
+            voiceSelection = .preset(Voice.default.id)
+        }
+    }
+
+    // MARK: - 模型就绪（当前选择对应的模型）
+
+    /// 当前发声方式所需的模型管理器（引导页/工具栏面板/设置均随之切换）
+    var modelManager: MLXModelManager? {
+        usingClone ? cloneManager : presetManager
+    }
 
     var isModelReady: Bool {
-        modelManager.map { $0.state == .ready } ?? true
+        if isFakeMode { return true }
+        return modelManager?.state == .ready
     }
 
     func downloadModel() {
-        guard let modelManager else { return }
+        guard let manager = modelManager else { return }
         Task {
-            await modelManager.download()
-            warmUpIfReady()
+            await manager.download()
+            warmUpActiveEngineIfReady()
         }
     }
 
-    /// 模型就绪后后台预热，首次合成不吃加载延迟
-    private func warmUpIfReady() {
-        guard let mlxEngine, isModelReady else { return }
+    /// 设置里切换模型规格后重建两套引擎与管理器；未下载时引导页自然出现
+    func applyModelSelection() {
+        guard let current = presetMLXEngine, current.modelRepo != settings.modelRepo else { return }
+        let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo)
+        presetEngine = mlx
+        presetMLXEngine = mlx
+        presetManager = MLXModelManager(modelRepo: settings.modelRepo)
+        presetManager?.refresh()
+        cloneEngine = nil
+        cloneManager = nil
+        ensureCloneInfrastructureIfNeeded()
+        warmUpActiveEngineIfReady()
+    }
+
+    /// 首次选中克隆音色时，惰性创建 Base 模型的引擎与管理器
+    private func ensureCloneInfrastructureIfNeeded() {
+        guard usingClone, !isFakeMode, cloneManager == nil else { return }
+        cloneEngine = MLXInferenceEngine(modelRepo: settings.baseModelRepo)
+        cloneManager = MLXModelManager(modelRepo: settings.baseModelRepo)
+        cloneManager?.refresh()
+        warmUpActiveEngineIfReady()
+    }
+
+    /// 当前所需模型就绪后后台预热，首次合成不吃加载延迟
+    private func warmUpActiveEngineIfReady() {
+        guard isModelReady else { return }
+        let target: MLXInferenceEngine? = usingClone ? cloneEngine : presetMLXEngine
+        guard let target else { return }
         Task.detached(priority: .utility) {
-            try? await mlxEngine.prepare()
+            try? await target.prepare()
         }
     }
 
     // MARK: - 合成
 
     var canSynthesize: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSynthesizing && isModelReady
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !isSynthesizing, isModelReady else { return false }
+        if usingClone, selectedClonedVoice == nil { return false }
+        return true
     }
 
     var hasAudio: Bool {
@@ -99,24 +174,27 @@ final class AppModel {
     func synthesize() {
         guard canSynthesize else { return }
         let inputText = text
-        let inputVoice = voice
+        let inputVoice = selectedPresetVoice
+        let clone = selectedClonedVoice.map { clonedVoices.cloneReference(for: $0) }
+        let historyVoiceID = usingClone ? (selectedClonedVoice?.name ?? "克隆音色") : inputVoice.id
+        let activeEngine: any InferenceEngine = usingClone ? (cloneEngine ?? presetEngine) : presetEngine
         errorMessage = nil
         firstChunkLatency = nil
         isSynthesizing = true
 
-        let options = settings.makeSynthesisOptions(instruction: instruction)
+        let options = settings.makeSynthesisOptions(instruction: instruction, clone: clone)
         synthesisTask = Task {
             let started = ContinuousClock.now
             do {
                 try player.beginStreaming(sampleRate: 24_000)
-                for try await chunk in engine.synthesize(text: inputText, voice: inputVoice, options: options) {
+                for try await chunk in activeEngine.synthesize(text: inputText, voice: inputVoice, options: options) {
                     if firstChunkLatency == nil {
                         firstChunkLatency = started.duration(to: .now).seconds
                     }
                     player.enqueue(chunk)
                 }
                 player.endStreaming()
-                saveToHistory(text: inputText, voice: inputVoice)
+                saveToHistory(text: inputText, voiceID: historyVoiceID)
             } catch is CancellationError {
                 player.endStreaming()
             } catch {
@@ -142,8 +220,8 @@ final class AppModel {
                 player.enqueue(AudioChunk(samples: samples, sampleRate: sampleRate))
                 player.endStreaming()
                 text = item.text
-                if let itemVoice = Voice.presets.first(where: { $0.id == item.voiceID }) {
-                    voice = itemVoice
+                if Voice.presets.contains(where: { $0.id == item.voiceID }) {
+                    voiceSelection = .preset(item.voiceID)
                 }
             } else {
                 try player.replay()
@@ -190,12 +268,46 @@ final class AppModel {
         return panel.url
     }
 
-    private func saveToHistory(text: String, voice: Voice) {
+    private func saveToHistory(text: String, voiceID: String) {
         guard !player.samples.isEmpty else { return }
         do {
+            let voice = Voice.presets.first { $0.id == voiceID }
+                ?? Voice(id: voiceID, displayName: voiceID, detail: "克隆")
             try history.add(text: text, voice: voice, samples: player.samples, sampleRate: player.sampleRate)
         } catch {
             errorMessage = "历史记录保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - 选择持久化
+
+    private func persistVoiceSelection() {
+        switch voiceSelection {
+        case .preset(let id):
+            UserDefaults.standard.set("preset:\(id)", forKey: "lastVoiceSelection")
+        case .clone(let id):
+            UserDefaults.standard.set("clone:\(id.uuidString)", forKey: "lastVoiceSelection")
+        }
+    }
+
+    private func restoreVoiceSelection() {
+        guard let saved = UserDefaults.standard.string(forKey: "lastVoiceSelection") else {
+            // 兼容旧版存储
+            if let oldID = UserDefaults.standard.string(forKey: "lastVoiceID"),
+               Voice.presets.contains(where: { $0.id == oldID }) {
+                voiceSelection = .preset(oldID)
+            }
+            return
+        }
+        if saved.hasPrefix("preset:") {
+            let id = String(saved.dropFirst("preset:".count))
+            if Voice.presets.contains(where: { $0.id == id }) {
+                voiceSelection = .preset(id)
+            }
+        } else if saved.hasPrefix("clone:"),
+                  let uuid = UUID(uuidString: String(saved.dropFirst("clone:".count))),
+                  clonedVoices.items.contains(where: { $0.id == uuid }) {
+            voiceSelection = .clone(uuid)
         }
     }
 

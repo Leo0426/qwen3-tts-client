@@ -31,16 +31,30 @@ public final class MLXInferenceEngine: InferenceEngine {
                 do {
                     let model = try await loader.model()
                     let sampleRate = Double(model.sampleRate)
-                    // CustomVoice 以 "speaker, 指令" 形式携带风格指令
-                    let voicePrompt = options.instruction.map { "\(voice.id), \($0)" } ?? voice.id
                     var parameters = model.defaultGenerationParameters
                     if let temperature = options.temperature { parameters.temperature = temperature }
                     if let topP = options.topP { parameters.topP = topP }
+
+                    // 克隆：参考音频 + 文字稿，音色与指令由参考音频决定（需 Base 变体模型）
+                    // 预置：CustomVoice 以 "speaker, 指令" 形式携带风格指令
+                    let voicePrompt: String?
+                    let refAudio: MLXArray?
+                    let refText: String?
+                    if let clone = options.clone {
+                        voicePrompt = nil
+                        (_, refAudio) = try loadAudioArray(from: clone.audioURL, sampleRate: model.sampleRate)
+                        refText = clone.transcript
+                    } else {
+                        voicePrompt = options.instruction.map { "\(voice.id), \($0)" } ?? voice.id
+                        refAudio = nil
+                        refText = nil
+                    }
+
                     let stream = model.generateStream(
                         text: text,
                         voice: voicePrompt,
-                        refAudio: nil,
-                        refText: nil,
+                        refAudio: refAudio,
+                        refText: refText,
                         language: options.language,
                         generationParameters: parameters,
                         streamingInterval: options.streamingInterval ?? 0.32

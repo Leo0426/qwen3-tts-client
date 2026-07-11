@@ -77,11 +77,17 @@ final class AppSettings {
         streamingInterval = defaults.object(forKey: "streamingInterval") as? Double ?? 0.32
     }
 
-    /// 组装传给推理引擎的合成选项
-    func makeSynthesisOptions(instruction: String) -> SynthesisOptions {
+    /// 声音克隆使用同规格的 Base 变体模型（带 speaker encoder）
+    var baseModelRepo: String {
+        modelRepo.replacingOccurrences(of: "CustomVoice", with: "Base")
+    }
+
+    /// 组装传给推理引擎的合成选项；clone 非空时指令被忽略（Base 路径不支持）
+    func makeSynthesisOptions(instruction: String, clone: CloneReference? = nil) -> SynthesisOptions {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         return SynthesisOptions(
-            instruction: trimmed.isEmpty ? nil : trimmed,
+            clone: clone,
+            instruction: clone == nil && !trimmed.isEmpty ? trimmed : nil,
             language: language,
             temperature: useCustomSampling ? Float(temperature) : nil,
             topP: useCustomSampling ? Float(topP) : nil,

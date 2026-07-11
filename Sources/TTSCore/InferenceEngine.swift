@@ -15,8 +15,21 @@ public struct AudioChunk: Sendable {
     }
 }
 
+/// 声音克隆引用：3 秒以上参考音频 + 与之一致的文字稿。
+public struct CloneReference: Equatable, Sendable {
+    public var audioURL: URL
+    public var transcript: String
+
+    public init(audioURL: URL, transcript: String) {
+        self.audioURL = audioURL
+        self.transcript = transcript
+    }
+}
+
 /// 合成选项。所有字段 nil 即模型默认值，保证零配置可用。
 public struct SynthesisOptions: Equatable, Sendable {
+    /// 声音克隆；设置后使用参考音频的音色，预置音色与指令被忽略（需 Base 变体模型）
+    public var clone: CloneReference?
     /// 风格指令（如“用温柔的语气慢慢说”）；nil 不加指令
     public var instruction: String?
     /// 语言（模型期望英文名，如 "Chinese"）；nil 自动检测
@@ -31,12 +44,14 @@ public struct SynthesisOptions: Equatable, Sendable {
     public static let `default` = SynthesisOptions()
 
     public init(
+        clone: CloneReference? = nil,
         instruction: String? = nil,
         language: String? = nil,
         temperature: Float? = nil,
         topP: Float? = nil,
         streamingInterval: Double? = nil
     ) {
+        self.clone = clone
         self.instruction = instruction
         self.language = language
         self.temperature = temperature

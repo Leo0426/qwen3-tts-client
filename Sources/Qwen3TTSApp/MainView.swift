@@ -5,6 +5,7 @@ struct MainView: View {
     @Bindable var model: AppModel
     @State private var showHistory = true
     @State private var showModelInfo = false
+    @State private var showCloneSheet = false
 
     var body: some View {
         HSplitView {
@@ -76,11 +77,15 @@ struct MainView: View {
 
     private var controlBar: some View {
         VStack(spacing: 10) {
-            TextField("风格指令（可选），如：用温柔的语气慢慢说", text: $model.instruction)
-                .textFieldStyle(.roundedBorder)
-                .disabled(model.isSynthesizing)
+            TextField(
+                model.usingClone ? "克隆音色的风格由参考音频决定，指令不生效" : "风格指令（可选），如：用温柔的语气慢慢说",
+                text: $model.instruction
+            )
+            .textFieldStyle(.roundedBorder)
+            .disabled(model.isSynthesizing || model.usingClone)
             HStack(spacing: 12) {
                 voicePicker
+                cloneButton
                 Spacer()
                 statusText
                 synthesizeButton
@@ -102,9 +107,18 @@ struct MainView: View {
     }
 
     private var voicePicker: some View {
-        Picker(selection: $model.voice) {
-            ForEach(Voice.presets) { voice in
-                Text("\(voice.displayName) — \(voice.detail)").tag(voice)
+        Picker(selection: $model.voiceSelection) {
+            Section("预置音色") {
+                ForEach(Voice.presets) { voice in
+                    Text("\(voice.displayName) — \(voice.detail)").tag(VoiceSelection.preset(voice.id))
+                }
+            }
+            if !model.clonedVoices.items.isEmpty {
+                Section("克隆音色") {
+                    ForEach(model.clonedVoices.items) { voice in
+                        Text("\(voice.name) — 克隆").tag(VoiceSelection.clone(voice.id))
+                    }
+                }
             }
         } label: {
             Label("音色", systemImage: "person.wave.2")
@@ -112,6 +126,19 @@ struct MainView: View {
         .pickerStyle(.menu)
         .fixedSize()
         .disabled(model.isSynthesizing)
+    }
+
+    private var cloneButton: some View {
+        Button {
+            showCloneSheet = true
+        } label: {
+            Image(systemName: "person.badge.plus")
+        }
+        .help("克隆音色：用一段参考音频复刻声音")
+        .disabled(model.isSynthesizing)
+        .sheet(isPresented: $showCloneSheet) {
+            CloneVoiceSheet(model: model)
+        }
     }
 
     private var statusText: some View {
