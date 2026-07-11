@@ -63,6 +63,25 @@ public final class MLXModelManager {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
+    /// 已下载模型的磁盘占用（未安装时为 nil）
+    public var diskUsageBytes: Int64? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: modelDirectory,
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey]
+        ) else { return nil }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            total += Int64((try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+        }
+        return total > 0 ? total : nil
+    }
+
+    /// 删除已下载模型并回到未安装状态（引导页会重新出现）
+    public func deleteModel() {
+        try? FileManager.default.removeItem(at: modelDirectory)
+        refresh()
+    }
+
     public func download() async {
         guard let repoID = Repo.ID(rawValue: modelRepo) else {
             state = .failed("无效的模型仓库名：\(modelRepo)")

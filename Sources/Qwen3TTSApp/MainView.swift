@@ -4,6 +4,7 @@ import TTSCore
 struct MainView: View {
     @Bindable var model: AppModel
     @State private var showHistory = true
+    @State private var showModelInfo = false
 
     var body: some View {
         HSplitView {
@@ -23,6 +24,19 @@ struct MainView: View {
             }
         }
         .toolbar {
+            if let manager = model.modelManager {
+                ToolbarItem {
+                    Button {
+                        showModelInfo.toggle()
+                    } label: {
+                        Label("模型", systemImage: "cpu")
+                    }
+                    .help("本地模型状态与管理")
+                    .popover(isPresented: $showModelInfo, arrowEdge: .bottom) {
+                        ModelInfoPopover(manager: manager)
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     withAnimation { showHistory.toggle() }
