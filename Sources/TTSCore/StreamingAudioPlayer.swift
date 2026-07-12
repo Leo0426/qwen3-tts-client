@@ -35,6 +35,11 @@ public final class StreamingAudioPlayer {
     private var pendingBuffers = 0
     private var streamEnded = false
     private var attached = false
+    /// 调度代际号：stop/seek/replay 后旧 buffer 的完成回调异步补刀，
+    /// 代际不匹配的回调直接作废，避免打乱新一轮的计数
+    private var scheduleGeneration = 0
+    /// seek 后的进度基准（playerNode 的 sampleTime 在重新 play 后从 0 计）
+    private var playbackBaseOffset: TimeInterval = 0
 
     public init() {}
 
@@ -49,14 +54,35 @@ public final class StreamingAudioPlayer {
         guard playerNode.engine != nil,
               let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
-            return state == .finished ? bufferedDuration : 0
+            return state == .finished ? bufferedDuration : playbackBaseOffset
         }
-        return Double(playerTime.sampleTime) / playerTime.sampleRate
+        return playbackBaseOffset + Double(playerTime.sampleTime) / playerTime.sampleRate
+    }
+
+    /// 跳转到指定时间继续播放（含流式合成进行中：之后到达的音频仍按序衔接）
+    public func seek(to time: TimeInterval) {
+        guard !samples.isEmpty, format != nil else { return }
+        let clamped = min(max(0, time), bufferedDuration)
+        scheduleGeneration += 1
+        playerNode.stop()
+        pendingBuffers = 0
+        playbackBaseOffset = clamped
+        do { try startEngine(sampleRate: sampleRate) } catch { return }
+        playerNode.play()
+        state = .playing
+        let startFrame = min(samples.count, Int(clamped * sampleRate))
+        let remaining = Array(samples[startFrame...])
+        if remaining.isEmpty {
+            settleIfDrained()
+        } else {
+            schedule(remaining)
+        }
     }
 
     /// 开始一次新的流式播放会话，清空上次的累积样本。
     public func beginStreaming(sampleRate: Double) throws {
         stop()
+        playbackBaseOffset = 0
         samples = []
         self.sampleRate = sampleRate
         streamEnded = false
@@ -93,8 +119,10 @@ public final class StreamingAudioPlayer {
     public func replay() throws {
         guard !samples.isEmpty else { return }
         let all = samples
+        scheduleGeneration += 1
         playerNode.stop()
         pendingBuffers = 0
+        playbackBaseOffset = 0
         streamEnded = true
         try startEngine(sampleRate: sampleRate)
         playerNode.play()
@@ -103,11 +131,13 @@ public final class StreamingAudioPlayer {
     }
 
     public func stop() {
+        scheduleGeneration += 1
         if playerNode.engine != nil {
             playerNode.stop()
         }
         engine.stop()
         pendingBuffers = 0
+        playbackBaseOffset = 0
         streamEnded = true
         state = .idle
     }
@@ -148,9 +178,10 @@ public final class StreamingAudioPlayer {
             buffer.floatChannelData![0].update(from: pointer.baseAddress!, count: chunkSamples.count)
         }
         pendingBuffers += 1
+        let generation = scheduleGeneration
         playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.scheduleGeneration == generation else { return }
                 self.pendingBuffers -= 1
                 self.settleIfDrained()
             }

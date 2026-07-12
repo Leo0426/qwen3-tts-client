@@ -231,6 +231,8 @@ struct MainView: View {
 /// 播放控制条：进度 + 播放/暂停/重播/导出
 struct PlaybackBar: View {
     @Bindable var model: AppModel
+    /// 拖动波形时的预览进度；松手才真正 seek
+    @State private var scrubFraction: Double?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
@@ -307,14 +309,28 @@ struct PlaybackBar: View {
     private var progressView: some View {
         let buffered = model.player.bufferedDuration
         let played = min(model.player.playbackTime, buffered)
+        let liveFraction = buffered > 0 ? played / buffered : 0
+        let shownFraction = scrubFraction ?? liveFraction
         return HStack(spacing: 10) {
-            Text(Self.format(played))
-            WaveformView(
-                samples: model.player.samples,
-                progress: buffered > 0 ? played / buffered : 0
-            )
+            Text(Self.format(scrubFraction.map { $0 * buffered } ?? played))
+            GeometryReader { geometry in
+                WaveformView(samples: model.player.samples, progress: shownFraction)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                scrubFraction = min(max(0, value.location.x / geometry.size.width), 1)
+                            }
+                            .onEnded { value in
+                                let fraction = min(max(0, value.location.x / geometry.size.width), 1)
+                                scrubFraction = nil
+                                model.player.seek(to: fraction * model.player.bufferedDuration)
+                            }
+                    )
+            }
             .frame(height: 26)
             .frame(maxWidth: .infinity)
+            .help("点按或拖动跳转")
             Text(Self.format(buffered) + (model.isSynthesizing ? "+" : ""))
         }
         .font(.caption2)

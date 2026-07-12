@@ -22,7 +22,24 @@ struct DesignVoiceSheet: View {
 
             newDesignForm
 
+            if let error = model.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.top, 8)
+            }
+
             HStack {
+                Button {
+                    model.toggleAuditionDesign(prompt: prompt)
+                } label: {
+                    Label(
+                        model.isSpeaking ? "停止" : "试听",
+                        systemImage: model.isSpeaking ? "stop.fill" : "play.fill"
+                    )
+                }
+                .help("用示例句试听这段描述的声音，满意再保存")
+                .disabled(!model.isSpeaking && prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Spacer()
                 Button("关闭") { dismiss() }
                     .keyboardShortcut(.cancelAction)

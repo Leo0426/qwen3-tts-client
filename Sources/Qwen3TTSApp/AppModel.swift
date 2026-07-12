@@ -332,17 +332,60 @@ final class AppModel {
 
     func synthesize() {
         guard canSynthesize else { return }
-        let inputText = text
-        let inputVoice = selectedPresetVoice
-        let clone = selectedClonedVoice.map { clonedVoices.cloneReference(for: $0) }
-        let design = selectedDesignedVoice?.prompt
         let historyVoiceID: String
         switch voiceSelection {
-        case .preset: historyVoiceID = inputVoice.id
+        case .preset: historyVoiceID = selectedPresetVoice.id
         case .clone: historyVoiceID = selectedClonedVoice?.name ?? "克隆音色"
         case .design: historyVoiceID = selectedDesignedVoice?.name ?? "设计音色"
         }
-        let slot = activeSlot
+        let options = settings.makeSynthesisOptions(
+            instruction: instruction,
+            clone: selectedClonedVoice.map { clonedVoices.cloneReference(for: $0) },
+            design: selectedDesignedVoice?.prompt
+        )
+        startSynthesis(
+            text: text,
+            voice: selectedPresetVoice,
+            options: options,
+            slot: activeSlot,
+            historyVoiceID: historyVoiceID
+        )
+    }
+
+    /// 试听一段声音描述（语音设计面板用）：固定示例句，不进历史
+    static let auditionSampleText = "你好，这就是用这段描述生成的声音。今天天气不错，适合出去走走。"
+
+    func toggleAuditionDesign(prompt: String) {
+        if isSpeaking {
+            cancelSynthesis()
+            player.stop()
+            return
+        }
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        ensureSlot(.design)
+        if !isFakeMode, managers[.design]?.state != .ready {
+            errorMessage = "试听需要先下载「语音设计 1.7B」模型（工具栏 ⬇ 打开模型下载中心）"
+            return
+        }
+        let options = settings.makeSynthesisOptions(instruction: "", design: trimmed)
+        startSynthesis(
+            text: Self.auditionSampleText,
+            voice: .default,
+            options: options,
+            slot: .design,
+            historyVoiceID: nil
+        )
+    }
+
+    /// 合成执行器：正式合成与试听共用同一条链路
+    private func startSynthesis(
+        text inputText: String,
+        voice inputVoice: Voice,
+        options: SynthesisOptions,
+        slot: ModelSlotKind,
+        historyVoiceID: String?
+    ) {
         let activeEngine: any InferenceEngine = fakeEngine
             ?? mlxEngines[slot].map { SegmentingEngine(base: $0) }
             ?? SegmentingEngine(base: FakeInferenceEngine())
@@ -350,7 +393,6 @@ final class AppModel {
         firstChunkLatency = nil
         isSynthesizing = true
 
-        let options = settings.makeSynthesisOptions(instruction: instruction, clone: clone, design: design)
         synthesisTask = Task {
             let started = ContinuousClock.now
             do {
@@ -364,7 +406,9 @@ final class AppModel {
                     player.enqueue(chunk)
                 }
                 player.endStreaming()
-                saveToHistory(text: inputText, voiceID: historyVoiceID)
+                if let historyVoiceID {
+                    saveToHistory(text: inputText, voiceID: historyVoiceID)
+                }
             } catch is CancellationError {
                 player.endStreaming()
             } catch {
