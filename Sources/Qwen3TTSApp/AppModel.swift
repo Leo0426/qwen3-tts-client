@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import Observation
 import TTSCore
@@ -83,6 +84,8 @@ final class AppModel {
     private var loadStates: [ModelSlotKind: ModelLoadState] = [:]
     private var synthesisTask: Task<Void, Never>?
     private var isFakeMode: Bool { fakeEngine != nil }
+    /// 全局快捷键 ⌃⌥⌘S：朗读剪贴板 / 停止（开关语义）
+    private var speakHotKey: GlobalHotKey?
 
     init(historyDirectory: URL? = nil, voicesDirectory: URL? = nil, designsDirectory: URL? = nil) {
         history = HistoryStore(directory: historyDirectory)
@@ -104,6 +107,37 @@ final class AppModel {
         }
         ensureActiveSlot()
         warmUpActiveEngineIfReady()
+        speakHotKey = GlobalHotKey(
+            keyCode: UInt32(kVK_ANSI_S),
+            modifiers: UInt32(cmdKey | optionKey | controlKey)
+        ) { [weak self] in
+            Task { @MainActor in
+                self?.toggleSpeakClipboard()
+            }
+        }
+    }
+
+    // MARK: - 剪贴板朗读（菜单栏 / 全局快捷键）
+
+    var isSpeaking: Bool {
+        isSynthesizing || player.state == .playing
+    }
+
+    /// 开关语义：正在出声就停止，否则朗读剪贴板文本
+    func toggleSpeakClipboard() {
+        if isSpeaking {
+            cancelSynthesis()
+            player.stop()
+            return
+        }
+        guard let clipboard = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !clipboard.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        text = clipboard
+        synthesize()
     }
 
     // MARK: - 音色选择

@@ -12,10 +12,14 @@ struct Qwen3TTSApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Qwen3 TTS") {
+        WindowGroup("Qwen3 TTS", id: "main") {
             MainView(model: model)
         }
         .defaultSize(width: 860, height: 540)
+
+        MenuBarExtra("Qwen3 TTS", systemImage: "waveform") {
+            MenuBarContent(model: model)
+        }
 
         Window("模型下载", id: "model-downloads") {
             ModelDownloadView(model: model, settings: model.settings)
