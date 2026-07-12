@@ -52,10 +52,16 @@ private struct HistoryRow: View {
             Text(item.text)
                 .lineLimit(2)
                 .font(.callout)
-            HStack {
-                Text("\(voiceName) · \(Self.format(item.duration))")
+            HStack(spacing: 6) {
+                Text(voiceName)
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quinary, in: Capsule())
+                Text(Self.format(item.duration))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 Spacer()
                 if isHovering {
                     Button {

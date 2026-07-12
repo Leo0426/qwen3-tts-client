@@ -70,16 +70,26 @@ struct MainView: View {
     private var textEditor: some View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $model.text)
-                .font(.system(size: 15))
-                .lineSpacing(4)
+                .font(.system(size: 16))
+                .lineSpacing(7)
                 .scrollContentBackground(.hidden)
-                .padding(12)
+                .padding(20)
             if model.text.isEmpty {
                 Text("输入要合成的文本…")
-                    .font(.system(size: 15))
+                    .font(.system(size: 16))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 12)
-                    .padding(.leading, 17)
+                    .padding(.top, 20)
+                    .padding(.leading, 25)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !model.text.isEmpty {
+                Text("\(model.text.count) 字")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .padding(10)
                     .allowsHitTesting(false)
             }
         }
@@ -88,7 +98,10 @@ struct MainView: View {
     private var controlBar: some View {
         VStack(spacing: 10) {
             TextField(instructionPlaceholder, text: $model.instruction)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.quinary, in: RoundedRectangle(cornerRadius: 7))
                 .disabled(model.isSynthesizing || model.usingClone || model.usingDesign)
             HStack(spacing: 12) {
                 voicePicker
@@ -183,8 +196,6 @@ struct MainView: View {
                 } else {
                     Text("准备中…")
                 }
-            } else if !model.text.isEmpty {
-                Text("\(model.text.count) 字")
             }
         }
         .font(.callout)
@@ -296,13 +307,17 @@ struct PlaybackBar: View {
     private var progressView: some View {
         let buffered = model.player.bufferedDuration
         let played = min(model.player.playbackTime, buffered)
-        return HStack(spacing: 8) {
+        return HStack(spacing: 10) {
             Text(Self.format(played))
-            ProgressView(value: buffered > 0 ? played / buffered : 0)
-                .progressViewStyle(.linear)
+            WaveformView(
+                samples: model.player.samples,
+                progress: buffered > 0 ? played / buffered : 0
+            )
+            .frame(height: 26)
+            .frame(maxWidth: .infinity)
             Text(Self.format(buffered) + (model.isSynthesizing ? "+" : ""))
         }
-        .font(.caption)
+        .font(.caption2)
         .foregroundStyle(.secondary)
         .monospacedDigit()
     }
