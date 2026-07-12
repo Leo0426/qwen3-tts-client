@@ -76,12 +76,12 @@ final class AppModel {
             downloadHost: settings.resolvedDownloadHost
         )
         if ProcessInfo.processInfo.environment["QWEN3TTS_FAKE_ENGINE"] == "1" {
-            presetEngine = FakeInferenceEngine()
+            presetEngine = SegmentingEngine(base: FakeInferenceEngine())
             presetMLXEngine = nil
             presetManager = nil
         } else {
             let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo, cacheDirectory: settings.resolvedStorageURL)
-            presetEngine = mlx
+            presetEngine = SegmentingEngine(base: mlx)
             presetMLXEngine = mlx
             presetManager = modelLibrary.manager(for: settings.modelRepo)
         }
@@ -172,7 +172,7 @@ final class AppModel {
     private func rebuildEngines() {
         guard !isFakeMode else { return }
         let mlx = MLXInferenceEngine(modelRepo: settings.modelRepo, cacheDirectory: settings.resolvedStorageURL)
-        presetEngine = mlx
+        presetEngine = SegmentingEngine(base: mlx)
         presetMLXEngine = mlx
         presetLoadState = .unloaded
         presetManager = modelLibrary.manager(for: settings.modelRepo)
@@ -259,7 +259,9 @@ final class AppModel {
         let inputVoice = selectedPresetVoice
         let clone = selectedClonedVoice.map { clonedVoices.cloneReference(for: $0) }
         let historyVoiceID = usingClone ? (selectedClonedVoice?.name ?? "克隆音色") : inputVoice.id
-        let activeEngine: any InferenceEngine = usingClone ? (cloneEngine ?? presetEngine) : presetEngine
+        let activeEngine: any InferenceEngine = usingClone
+            ? (cloneEngine.map { SegmentingEngine(base: $0) } ?? presetEngine)
+            : presetEngine
         let activeIsClone = usingClone
         errorMessage = nil
         firstChunkLatency = nil
