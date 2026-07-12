@@ -235,6 +235,8 @@ struct PlaybackBar: View {
 
                 progressView
 
+                rateMenu
+
                 Button {
                     model.exportCurrentAudio()
                 } label: {
@@ -260,6 +262,35 @@ struct PlaybackBar: View {
         }
         .help(model.player.state == .playing ? "暂停" : "播放")
         .disabled(model.player.samples.isEmpty)
+    }
+
+    private static let rateOptions: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
+    private var rateMenu: some View {
+        Menu {
+            ForEach(Self.rateOptions, id: \.self) { rate in
+                Button {
+                    model.playbackRate = rate
+                } label: {
+                    if model.playbackRate == rate {
+                        Label(Self.formatRate(rate), systemImage: "checkmark")
+                    } else {
+                        Text(Self.formatRate(rate))
+                    }
+                }
+            }
+        } label: {
+            Text(Self.formatRate(model.playbackRate))
+                .font(.caption)
+                .monospacedDigit()
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("播放速度（变速不变调）")
+    }
+
+    private static func formatRate(_ rate: Float) -> String {
+        rate == rate.rounded() ? String(format: "%.0f×", rate) : String(format: "%.2g×", rate)
     }
 
     private var progressView: some View {

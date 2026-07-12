@@ -55,6 +55,13 @@ final class AppModel {
     var instruction: String = "" {
         didSet { UserDefaults.standard.set(instruction, forKey: "lastInstruction") }
     }
+    /// 播放速度（变速不变调），跨会话记住
+    var playbackRate: Float = 1.0 {
+        didSet {
+            player.rate = playbackRate
+            UserDefaults.standard.set(Double(playbackRate), forKey: "playbackRate")
+        }
+    }
     let settings = AppSettings()
 
     private(set) var isSynthesizing = false
@@ -92,6 +99,9 @@ final class AppModel {
         }
         restoreVoiceSelection()
         instruction = UserDefaults.standard.string(forKey: "lastInstruction") ?? ""
+        if let savedRate = UserDefaults.standard.object(forKey: "playbackRate") as? Double {
+            playbackRate = Float(savedRate)
+        }
         ensureActiveSlot()
         warmUpActiveEngineIfReady()
     }

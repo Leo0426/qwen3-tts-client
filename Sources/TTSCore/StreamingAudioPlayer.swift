@@ -19,7 +19,18 @@ public final class StreamingAudioPlayer {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    /// 变速不变调（0.5×~2×）
+    private let timePitch = AVAudioUnitTimePitch()
     private var format: AVAudioFormat?
+
+    /// 播放速度；对正在播放的音频立即生效
+    public var rate: Float = 1.0 {
+        didSet {
+            let clamped = min(2.0, max(0.5, rate))
+            if clamped != rate { rate = clamped }
+            timePitch.rate = rate
+        }
+    }
     /// 尚未播完的已调度 buffer 数；归零且流已结束 → finished
     private var pendingBuffers = 0
     private var streamEnded = false
@@ -112,11 +123,14 @@ public final class StreamingAudioPlayer {
         )!
         if !attached {
             engine.attach(playerNode)
+            engine.attach(timePitch)
+            timePitch.rate = rate
             attached = true
         }
         // 采样率变化时需要重连
         if self.format?.sampleRate != sampleRate {
-            engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+            engine.connect(playerNode, to: timePitch, format: format)
+            engine.connect(timePitch, to: engine.mainMixerNode, format: format)
             self.format = format
         }
         if !engine.isRunning {
