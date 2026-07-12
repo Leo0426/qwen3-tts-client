@@ -46,7 +46,8 @@ public final class MLXInferenceEngine: InferenceEngine {
                     if let temperature = options.temperature { parameters.temperature = temperature }
                     if let topP = options.topP { parameters.topP = topP }
 
-                    // 克隆：参考音频 + 文字稿，音色与指令由参考音频决定（需 Base 变体模型）
+                    // 克隆：参考音频 + 文字稿，音色由参考音频决定（需 Base 变体模型）
+                    // 设计：voice 参数即自然语言声音描述（需 VoiceDesign 变体模型）
                     // 预置：CustomVoice 以 "speaker, 指令" 形式携带风格指令
                     let voicePrompt: String?
                     let refAudio: MLXArray?
@@ -55,6 +56,10 @@ public final class MLXInferenceEngine: InferenceEngine {
                         voicePrompt = nil
                         (_, refAudio) = try loadAudioArray(from: clone.audioURL, sampleRate: model.sampleRate)
                         refText = clone.transcript
+                    } else if let design = options.design {
+                        voicePrompt = design
+                        refAudio = nil
+                        refText = nil
                     } else {
                         voicePrompt = options.instruction.map { "\(voice.id), \($0)" } ?? voice.id
                         refAudio = nil

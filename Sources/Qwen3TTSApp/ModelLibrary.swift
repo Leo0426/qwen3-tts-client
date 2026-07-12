@@ -36,6 +36,11 @@ final class ModelLibrary {
             title: "声音克隆 1.7B",
             subtitle: "参考音频复刻音色 · 音质更好 · 约 3.0 GB"
         ),
+        CatalogEntry(
+            repo: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
+            title: "语音设计 1.7B",
+            subtitle: "自然语言描述造声音 · 约 2.9 GB"
+        ),
     ]
 
     private(set) var cacheDirectory: URL?

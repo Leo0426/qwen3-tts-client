@@ -23,23 +23,16 @@ struct SettingsView: View {
     private var loadManagementSection: some View {
         Section("加载管理") {
             Toggle("模型就绪后自动加载进内存", isOn: $settings.autoWarmUp)
-            if let manager = model.presetModelManager {
-                loadRow(
-                    title: "预置音色模型",
-                    subtitle: manager.modelRepo.components(separatedBy: "/").last ?? "",
-                    ready: manager.state == .ready,
-                    state: model.loadState(clone: false),
-                    clone: false
-                )
-            }
-            if let manager = model.cloneModelManager {
-                loadRow(
-                    title: "克隆音色模型",
-                    subtitle: manager.modelRepo.components(separatedBy: "/").last ?? "",
-                    ready: manager.state == .ready,
-                    state: model.loadState(clone: true),
-                    clone: true
-                )
+            ForEach(model.activeSlots, id: \.self) { slot in
+                if let manager = model.slotManager(slot) {
+                    loadRow(
+                        title: slot.title,
+                        subtitle: manager.modelRepo.components(separatedBy: "/").last ?? "",
+                        ready: manager.state == .ready,
+                        state: model.loadState(slot),
+                        slot: slot
+                    )
+                }
             }
             Text("加载后合成即时响应；卸载可释放内存，下次合成自动重新加载（约 3 秒）。")
                 .font(.caption)
@@ -48,7 +41,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func loadRow(title: String, subtitle: String, ready: Bool, state: ModelLoadState, clone: Bool) -> some View {
+    private func loadRow(title: String, subtitle: String, ready: Bool, state: ModelLoadState, slot: ModelSlotKind) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
                 Text(ready ? state.label : "未下载")
@@ -56,12 +49,12 @@ struct SettingsView: View {
                     .font(.callout)
                 switch state {
                 case .unloaded:
-                    Button("加载") { model.warmUpModel(clone: clone) }
+                    Button("加载") { model.warmUpModel(slot) }
                         .disabled(!ready)
                 case .loading:
                     ProgressView().controlSize(.small)
                 case .loaded:
-                    Button("卸载") { model.unloadModel(clone: clone) }
+                    Button("卸载") { model.unloadModel(slot) }
                         .disabled(model.isSynthesizing)
                 }
             }

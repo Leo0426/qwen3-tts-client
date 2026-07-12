@@ -30,6 +30,9 @@ public struct CloneReference: Equatable, Sendable {
 public struct SynthesisOptions: Equatable, Sendable {
     /// 声音克隆；设置后使用参考音频的音色，预置音色与指令被忽略（需 Base 变体模型）
     public var clone: CloneReference?
+    /// 语音设计：自然语言描述凭空造声音（需 VoiceDesign 变体模型）；
+    /// 设置后预置音色、克隆与指令均被忽略
+    public var design: String?
     /// 风格指令（如“用温柔的语气慢慢说”）；nil 不加指令
     public var instruction: String?
     /// 语言（模型期望英文名，如 "Chinese"）；nil 自动检测
@@ -45,6 +48,7 @@ public struct SynthesisOptions: Equatable, Sendable {
 
     public init(
         clone: CloneReference? = nil,
+        design: String? = nil,
         instruction: String? = nil,
         language: String? = nil,
         temperature: Float? = nil,
@@ -52,6 +56,7 @@ public struct SynthesisOptions: Equatable, Sendable {
         streamingInterval: Double? = nil
     ) {
         self.clone = clone
+        self.design = design
         self.instruction = instruction
         self.language = language
         self.temperature = temperature

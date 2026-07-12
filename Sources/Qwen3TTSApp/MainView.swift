@@ -6,6 +6,7 @@ struct MainView: View {
     @State private var showHistory = true
     @State private var showModelInfo = false
     @State private var showCloneSheet = false
+    @State private var showDesignSheet = false
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -86,15 +87,13 @@ struct MainView: View {
 
     private var controlBar: some View {
         VStack(spacing: 10) {
-            TextField(
-                model.usingClone ? "克隆音色的风格由参考音频决定，指令不生效" : "风格指令（可选），如：用温柔的语气慢慢说",
-                text: $model.instruction
-            )
-            .textFieldStyle(.roundedBorder)
-            .disabled(model.isSynthesizing || model.usingClone)
+            TextField(instructionPlaceholder, text: $model.instruction)
+                .textFieldStyle(.roundedBorder)
+                .disabled(model.isSynthesizing || model.usingClone || model.usingDesign)
             HStack(spacing: 12) {
                 voicePicker
                 cloneButton
+                designButton
                 Spacer()
                 statusText
                 synthesizeButton
@@ -129,12 +128,25 @@ struct MainView: View {
                     }
                 }
             }
+            if !model.designedVoices.items.isEmpty {
+                Section("语音设计") {
+                    ForEach(model.designedVoices.items) { voice in
+                        Text("\(voice.name) — 设计").tag(VoiceSelection.design(voice.id))
+                    }
+                }
+            }
         } label: {
             Label("音色", systemImage: "person.wave.2")
         }
         .pickerStyle(.menu)
         .fixedSize()
         .disabled(model.isSynthesizing)
+    }
+
+    private var instructionPlaceholder: String {
+        if model.usingClone { return "克隆音色的风格由参考音频决定，指令不生效" }
+        if model.usingDesign { return "设计音色的风格由声音描述决定，指令不生效" }
+        return "风格指令（可选），如：用温柔的语气慢慢说"
     }
 
     private var cloneButton: some View {
@@ -147,6 +159,19 @@ struct MainView: View {
         .disabled(model.isSynthesizing)
         .sheet(isPresented: $showCloneSheet) {
             CloneVoiceSheet(model: model)
+        }
+    }
+
+    private var designButton: some View {
+        Button {
+            showDesignSheet = true
+        } label: {
+            Image(systemName: "wand.and.stars")
+        }
+        .help("语音设计：用自然语言描述凭空造声音")
+        .disabled(model.isSynthesizing)
+        .sheet(isPresented: $showDesignSheet) {
+            DesignVoiceSheet(model: model)
         }
     }
 

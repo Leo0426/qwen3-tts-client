@@ -134,12 +134,16 @@ final class AppSettings {
         modelRepo.replacingOccurrences(of: "CustomVoice", with: "Base")
     }
 
-    /// 组装传给推理引擎的合成选项；clone 非空时指令被忽略（Base 路径不支持）
-    func makeSynthesisOptions(instruction: String, clone: CloneReference? = nil) -> SynthesisOptions {
+    /// 语音设计模型（官方仅提供 1.7B 变体，与规格选择无关）
+    static let designModelRepo = "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit"
+
+    /// 组装传给推理引擎的合成选项；clone/design 非空时指令被忽略
+    func makeSynthesisOptions(instruction: String, clone: CloneReference? = nil, design: String? = nil) -> SynthesisOptions {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         return SynthesisOptions(
             clone: clone,
-            instruction: clone == nil && !trimmed.isEmpty ? trimmed : nil,
+            design: design,
+            instruction: clone == nil && design == nil && !trimmed.isEmpty ? trimmed : nil,
             language: language,
             temperature: useCustomSampling ? Float(temperature) : nil,
             topP: useCustomSampling ? Float(topP) : nil,
