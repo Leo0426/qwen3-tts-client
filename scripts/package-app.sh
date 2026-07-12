@@ -8,7 +8,7 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 
 PRODUCTS=.xcbuild/Build/Products/Release
 APP=dist/Qwen3\ TTS.app
-VERSION=0.1.0
+VERSION="${VERSION:-0.1.0}"
 
 if [[ "${1:-}" != "--skip-build" ]]; then
   echo "==> xcodebuild Release"
