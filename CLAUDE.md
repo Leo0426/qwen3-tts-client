@@ -26,7 +26,7 @@ xcodebuild build -scheme Qwen3TTSApp -configuration Release \
 
 （`-skipPackagePluginValidation` 是必需的：mlx-swift 的 CudaBuild 插件否则会被 xcodebuild 拒绝；`-clonedSourcePackagesDirPath .build` 让 xcodebuild 复用 SPM CLI 的依赖 checkout，避免重复拉取大仓库。）
 
-打包 .app（构建 + 组装 + ad-hoc 签名，产物在 dist/）：
+打包 .app（构建 + 组装 + ad-hoc 签名 + zip + sha256，产物在 dist/，版本号取自 git tag）：
 
 ```sh
 scripts/package-app.sh            # 完整构建后打包
@@ -34,6 +34,13 @@ scripts/package-app.sh --skip-build  # 直接用现有 Release 产物
 ```
 
 纯 TTSCore/UI 开发（FakeInferenceEngine，不链接 MLX）仍可用 `swift build` / `swift test`。
+`swift test` 能编译链接 MLX 的 target（Metal shaders 不编译，仅运行时缺 metallib）；
+AppModelTests 全程假引擎，不触发 MLX 推理，所以照常通过。
+
+## 发布
+
+推 `v*` 标签即触发 `.github/workflows/release.yml`：CI 构建打包并创建 GitHub Release。
+Release notes 放 `docs/release-notes/<tag>.md`，workflow 自动取用。
 
 ## 架构（详见 docs/generated/prd.md）
 

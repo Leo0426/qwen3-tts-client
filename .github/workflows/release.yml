@@ -1,0 +1,42 @@
+# 推送 v* 标签时自动构建、打包并创建 GitHub Release。
+# 构建链接 MLX，必须走 xcodebuild（Metal shaders，见 CLAUDE.md）。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 打包脚本用 git describe 取版本号
+
+      - name: 缓存 SPM 依赖
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-release-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-release-${{ runner.os }}-
+
+      - name: 构建并打包
+        run: scripts/package-app.sh
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="docs/release-notes/${TAG}.md"
+          if [[ -f "$NOTES" ]]; then
+            gh release create "$TAG" dist/Qwen3TTS-*.zip dist/Qwen3TTS-*.zip.sha256 \
+              --title "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" dist/Qwen3TTS-*.zip dist/Qwen3TTS-*.zip.sha256 \
+              --title "$TAG" --generate-notes
+          fi

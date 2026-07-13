@@ -8,7 +8,11 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 
 PRODUCTS=.xcbuild/Build/Products/Release
 APP=dist/Qwen3\ TTS.app
-VERSION="${VERSION:-0.1.0}"
+# 版本号取自最近的 git tag（v0.1.0 → 0.1.0），可用 VERSION 环境变量覆盖；
+# CFBundleVersion 用提交计数，保证每次发布单调递增
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
+VERSION="${VERSION:-0.0.0}"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 
 if [[ "${1:-}" != "--skip-build" ]]; then
   echo "==> xcodebuild Release"
@@ -45,7 +49,7 @@ cat > "$APP/Contents/Info.plist" << PLIST
     <key>CFBundleExecutable</key><string>Qwen3TTSApp</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key><string>© 2026 leolu</string>
@@ -57,5 +61,13 @@ echo "==> ad-hoc 签名"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep "$APP" && echo "签名校验通过"
 
+echo "==> 打 zip 并生成校验"
+ZIP="dist/Qwen3TTS-v${VERSION}-arm64.zip"
+rm -f "$ZIP" "$ZIP.sha256"
+ditto -c -k --keepParent "$APP" "$ZIP"
+(cd dist && shasum -a 256 "$(basename "$ZIP")" > "$(basename "$ZIP").sha256")
+
 echo "==> 完成: $APP"
 du -sh "$APP"
+ls -lh "$ZIP"
+cat "$ZIP.sha256"
