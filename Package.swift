@@ -28,6 +28,8 @@ let package = Package(
         ),
         .executableTarget(name: "Qwen3TTSApp", dependencies: ["TTSCore", "TTSEngineMLX"]),
         .testTarget(name: "TTSCoreTests", dependencies: ["TTSCore"]),
+        // AppModel 状态机测试：全程假引擎，不触发 MLX 推理（链接 MLX 但不加载 metallib）
+        .testTarget(name: "AppModelTests", dependencies: ["Qwen3TTSApp"]),
     ],
     swiftLanguageModes: [.v5]
 )

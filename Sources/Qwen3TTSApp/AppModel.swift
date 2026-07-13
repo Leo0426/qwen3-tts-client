@@ -4,6 +4,7 @@ import Foundation
 import Observation
 import TTSCore
 import TTSEngineMLX
+import UniformTypeIdentifiers
 
 /// 当前选中的发声方式：预置音色 / 克隆音色 / 语音设计
 enum VoiceSelection: Hashable {
@@ -54,19 +55,22 @@ final class AppModel {
     }
     /// 风格指令（仅预置音色生效；克隆/设计的风格由参考音频或描述决定）
     var instruction: String = "" {
-        didSet { UserDefaults.standard.set(instruction, forKey: "lastInstruction") }
+        didSet { defaults.set(instruction, forKey: "lastInstruction") }
     }
     /// 播放速度（变速不变调），跨会话记住
     var playbackRate: Float = 1.0 {
         didSet {
             player.rate = playbackRate
-            UserDefaults.standard.set(Double(playbackRate), forKey: "playbackRate")
+            defaults.set(Double(playbackRate), forKey: "playbackRate")
         }
     }
-    let settings = AppSettings()
+    let settings: AppSettings
+    @ObservationIgnored private let defaults: UserDefaults
 
     private(set) var isSynthesizing = false
     private(set) var errorMessage: String?
+    /// 错误源于所需模型未下载：错误提示旁直接给「去下载」入口
+    private(set) var errorNeedsDownloadCenter = false
     /// 本次合成的首包延迟（可感知的“开始出声”时间）
     private(set) var firstChunkLatency: TimeInterval?
 
@@ -84,10 +88,22 @@ final class AppModel {
     private var loadStates: [ModelSlotKind: ModelLoadState] = [:]
     private var synthesisTask: Task<Void, Never>?
     private var isFakeMode: Bool { fakeEngine != nil }
-    /// 全局快捷键 ⌃⌥⌘S：朗读剪贴板 / 停止（开关语义）
+    /// 全局快捷键（默认 ⌃⌥⌘S，设置可改）：朗读剪贴板 / 停止（开关语义）
     private var speakHotKey: GlobalHotKey?
+    /// 快捷键注册失败（如与其他 App 冲突）时的设置页提示
+    private(set) var speakShortcutFailed = false
 
-    init(historyDirectory: URL? = nil, voicesDirectory: URL? = nil, designsDirectory: URL? = nil) {
+    init(
+        historyDirectory: URL? = nil,
+        voicesDirectory: URL? = nil,
+        designsDirectory: URL? = nil,
+        settings: AppSettings? = nil,
+        defaults: UserDefaults = .standard,
+        forceFakeEngine: Bool = false
+    ) {
+        let settings = settings ?? AppSettings()
+        self.settings = settings
+        self.defaults = defaults
         history = HistoryStore(directory: historyDirectory)
         clonedVoices = ClonedVoiceStore(directory: voicesDirectory)
         designedVoices = DesignedVoiceStore(directory: designsDirectory)
@@ -95,26 +111,48 @@ final class AppModel {
             cacheDirectory: settings.resolvedStorageURL,
             downloadHost: settings.resolvedDownloadHost
         )
-        if ProcessInfo.processInfo.environment["QWEN3TTS_FAKE_ENGINE"] == "1" {
+        if forceFakeEngine || ProcessInfo.processInfo.environment["QWEN3TTS_FAKE_ENGINE"] == "1" {
             fakeEngine = SegmentingEngine(base: FakeInferenceEngine())
         } else {
             ensureSlot(.preset)
         }
         restoreVoiceSelection()
-        instruction = UserDefaults.standard.string(forKey: "lastInstruction") ?? ""
-        if let savedRate = UserDefaults.standard.object(forKey: "playbackRate") as? Double {
+        instruction = defaults.string(forKey: "lastInstruction") ?? ""
+        if let savedRate = defaults.object(forKey: "playbackRate") as? Double {
             playbackRate = Float(savedRate)
         }
         ensureActiveSlot()
         warmUpActiveEngineIfReady()
+        applySpeakShortcut()
+    }
+
+    /// 按设置（重新）注册全局快捷键；旧注册先释放
+    func applySpeakShortcut() {
+        speakHotKey = nil
+        speakShortcutFailed = false
+        let shortcut = settings.speakShortcut
+        guard !shortcut.isDisabled else { return }
         speakHotKey = GlobalHotKey(
-            keyCode: UInt32(kVK_ANSI_S),
-            modifiers: UInt32(cmdKey | optionKey | controlKey)
+            keyCode: shortcut.keyCode,
+            modifiers: shortcut.carbonModifiers
         ) { [weak self] in
             Task { @MainActor in
                 self?.toggleSpeakClipboard()
             }
         }
+        speakShortcutFailed = speakHotKey == nil
+    }
+
+    // MARK: - 错误提示
+
+    func clearError() {
+        errorMessage = nil
+        errorNeedsDownloadCenter = false
+    }
+
+    private func reportError(_ message: String, needsDownloadCenter: Bool = false) {
+        errorMessage = message
+        errorNeedsDownloadCenter = needsDownloadCenter
     }
 
     // MARK: - 剪贴板朗读（菜单栏 / 全局快捷键）
@@ -176,7 +214,7 @@ final class AppModel {
             let voice = try clonedVoices.add(name: name, transcript: transcript, sourceAudioURL: sourceAudioURL)
             voiceSelection = .clone(voice.id)
         } catch {
-            errorMessage = "克隆音色保存失败：\(error.localizedDescription)"
+            reportError("克隆音色保存失败：\(error.localizedDescription)")
         }
     }
 
@@ -298,7 +336,7 @@ final class AppModel {
                 self?.loadStates[kind] = .loaded
             } catch {
                 self?.loadStates[kind] = .unloaded
-                self?.errorMessage = "模型加载失败：\(error.localizedDescription)"
+                self?.reportError("模型加载失败：\(error.localizedDescription)")
             }
         }
     }
@@ -365,7 +403,7 @@ final class AppModel {
         guard !trimmed.isEmpty else { return }
         ensureSlot(.design)
         if !isFakeMode, managers[.design]?.state != .ready {
-            errorMessage = "试听需要先下载「语音设计 1.7B」模型（工具栏 ⬇ 打开模型下载中心）"
+            reportError("试听需要先下载「语音设计 1.7B」模型", needsDownloadCenter: true)
             return
         }
         let options = settings.makeSynthesisOptions(instruction: "", design: trimmed)
@@ -389,7 +427,7 @@ final class AppModel {
         let activeEngine: any InferenceEngine = fakeEngine
             ?? mlxEngines[slot].map { SegmentingEngine(base: $0) }
             ?? SegmentingEngine(base: FakeInferenceEngine())
-        errorMessage = nil
+        clearError()
         firstChunkLatency = nil
         isSynthesizing = true
 
@@ -413,7 +451,7 @@ final class AppModel {
                 player.endStreaming()
             } catch {
                 player.stop()
-                errorMessage = error.localizedDescription
+                reportError(error.localizedDescription)
             }
             isSynthesizing = false
         }
@@ -441,7 +479,7 @@ final class AppModel {
                 try player.replay()
             }
         } catch {
-            errorMessage = error.localizedDescription
+            reportError(error.localizedDescription)
         }
     }
 
@@ -455,28 +493,46 @@ final class AppModel {
     func exportCurrentAudio() {
         guard !player.samples.isEmpty, let url = askSaveDestination() else { return }
         do {
-            try WavFile.write(samples: player.samples, sampleRate: player.sampleRate, to: url)
+            try writeAudio(samples: player.samples, sampleRate: player.sampleRate, to: url)
         } catch {
-            errorMessage = error.localizedDescription
+            reportError(error.localizedDescription)
         }
     }
 
-    /// 导出历史条目（直接拷贝缓存文件）
+    /// 导出历史条目（WAV 直接拷贝缓存文件，m4a 读回样本转码）
     func exportHistory(_ item: StoredHistoryItem) {
         guard let url = askSaveDestination() else { return }
         do {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+            if url.pathExtension.lowercased() == "m4a" {
+                let (samples, sampleRate) = try history.samples(for: item)
+                try M4AFile.write(samples: samples, sampleRate: sampleRate, to: url)
+            } else {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
+                try FileManager.default.copyItem(at: history.audioURL(for: item), to: url)
             }
-            try FileManager.default.copyItem(at: history.audioURL(for: item), to: url)
         } catch {
-            errorMessage = error.localizedDescription
+            reportError(error.localizedDescription)
+        }
+    }
+
+    /// 按目标扩展名选择编码：.m4a → AAC，其余 → WAV
+    private func writeAudio(samples: [Float], sampleRate: Double, to url: URL) throws {
+        if url.pathExtension.lowercased() == "m4a" {
+            try M4AFile.write(samples: samples, sampleRate: sampleRate, to: url)
+        } else {
+            try WavFile.write(samples: samples, sampleRate: sampleRate, to: url)
         }
     }
 
     private func askSaveDestination() -> URL? {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.wav]
+        panel.allowedContentTypes = [.wav, .mpeg4Audio]
+        // macOS 14 无格式下拉，直接改文件名后缀同样生效
+        if #available(macOS 15, *) {
+            panel.showsContentTypes = true
+        }
         panel.nameFieldStringValue = "qwen3-tts-\(Self.fileTimestamp()).wav"
         guard panel.runModal() == .OK else { return nil }
         return panel.url
@@ -489,7 +545,7 @@ final class AppModel {
                 ?? Voice(id: voiceID, displayName: voiceID, detail: "自定义")
             try history.add(text: text, voice: voice, samples: player.samples, sampleRate: player.sampleRate)
         } catch {
-            errorMessage = "历史记录保存失败：\(error.localizedDescription)"
+            reportError("历史记录保存失败：\(error.localizedDescription)")
         }
     }
 
@@ -502,11 +558,11 @@ final class AppModel {
         case .clone(let id): value = "clone:\(id.uuidString)"
         case .design(let id): value = "design:\(id.uuidString)"
         }
-        UserDefaults.standard.set(value, forKey: "lastVoiceSelection")
+        defaults.set(value, forKey: "lastVoiceSelection")
     }
 
     private func restoreVoiceSelection() {
-        guard let saved = UserDefaults.standard.string(forKey: "lastVoiceSelection") else { return }
+        guard let saved = defaults.string(forKey: "lastVoiceSelection") else { return }
         if saved.hasPrefix("preset:") {
             let id = String(saved.dropFirst("preset:".count))
             if Voice.presets.contains(where: { $0.id == id }) {

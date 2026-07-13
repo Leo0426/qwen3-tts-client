@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Foundation
 import Observation
 import TTSCore
@@ -41,6 +42,36 @@ final class AppSettings {
         ("低延迟（0.16s 分块）", 0.16),
         ("平衡（0.32s 分块）", 0.32),
         ("平滑（0.64s 分块）", 0.64),
+    ]
+
+    /// 全局快捷键预设（Carbon 键码 + 修饰键）；keyCode 为 0 且无修饰键 = 禁用
+    struct ShortcutOption: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let keyCode: UInt32
+        let carbonModifiers: UInt32
+
+        var isDisabled: Bool { carbonModifiers == 0 }
+    }
+
+    static let shortcutOptions: [ShortcutOption] = [
+        ShortcutOption(
+            id: "ctrl-opt-cmd-s", label: "⌃⌥⌘S",
+            keyCode: UInt32(kVK_ANSI_S), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+        ),
+        ShortcutOption(
+            id: "ctrl-opt-s", label: "⌃⌥S",
+            keyCode: UInt32(kVK_ANSI_S), carbonModifiers: UInt32(controlKey | optionKey)
+        ),
+        ShortcutOption(
+            id: "ctrl-opt-cmd-r", label: "⌃⌥⌘R",
+            keyCode: UInt32(kVK_ANSI_R), carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+        ),
+        ShortcutOption(
+            id: "shift-cmd-y", label: "⇧⌘Y",
+            keyCode: UInt32(kVK_ANSI_Y), carbonModifiers: UInt32(shiftKey | cmdKey)
+        ),
+        ShortcutOption(id: "none", label: "禁用", keyCode: 0, carbonModifiers: 0),
     ]
 
     enum DownloadSource: String, CaseIterable {
@@ -111,6 +142,14 @@ final class AppSettings {
     var streamingInterval: Double {
         didSet { defaults.set(streamingInterval, forKey: "streamingInterval") }
     }
+    /// 朗读剪贴板的全局快捷键（shortcutOptions 的 id）
+    var speakShortcutID: String {
+        didSet { defaults.set(speakShortcutID, forKey: "speakShortcutID") }
+    }
+
+    var speakShortcut: ShortcutOption {
+        Self.shortcutOptions.first { $0.id == speakShortcutID } ?? Self.shortcutOptions[0]
+    }
 
     private let defaults: UserDefaults
 
@@ -127,6 +166,9 @@ final class AppSettings {
         temperature = defaults.object(forKey: "temperature") as? Double ?? 0.9
         topP = defaults.object(forKey: "topP") as? Double ?? 1.0
         streamingInterval = defaults.object(forKey: "streamingInterval") as? Double ?? 0.32
+        let savedShortcut = defaults.string(forKey: "speakShortcutID")
+        speakShortcutID = Self.shortcutOptions.contains { $0.id == savedShortcut }
+            ? savedShortcut! : Self.shortcutOptions[0].id
     }
 
     /// 声音克隆使用同规格的 Base 变体模型（带 speaker encoder）

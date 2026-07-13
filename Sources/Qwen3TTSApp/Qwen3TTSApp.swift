@@ -43,6 +43,9 @@ struct Qwen3TTSApp: App {
                 .onChange(of: model.settings.customEndpoint) {
                     model.applyDownloadSource()
                 }
+                .onChange(of: model.settings.speakShortcutID) {
+                    model.applySpeakShortcut()
+                }
         }
     }
 }

@@ -15,6 +15,7 @@ struct SettingsView: View {
             languageSection
             samplingSection
             streamingSection
+            shortcutSection
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 560)
@@ -114,6 +115,24 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var shortcutSection: some View {
+        Section("快捷键") {
+            Picker("朗读剪贴板", selection: $settings.speakShortcutID) {
+                ForEach(AppSettings.shortcutOptions) { option in
+                    Text(option.label).tag(option.id)
+                }
+            }
+            if model.speakShortcutFailed {
+                Label("注册失败，可能与其他 App 的快捷键冲突，请换一个组合", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+            Text("任意 App 里 ⌘C 复制后按此快捷键即刻朗读，再按停止。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

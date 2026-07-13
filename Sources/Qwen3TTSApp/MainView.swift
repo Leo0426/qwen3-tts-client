@@ -115,11 +115,25 @@ struct MainView: View {
                 PlaybackBar(model: model)
             }
             if let errorMessage = model.errorMessage {
-                HStack {
+                HStack(spacing: 8) {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                         .font(.callout)
+                    if model.errorNeedsDownloadCenter {
+                        Button("去下载") {
+                            openWindow(id: "model-downloads")
+                        }
+                        .controlSize(.small)
+                    }
                     Spacer()
+                    Button {
+                        model.clearError()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("关闭提示")
                 }
             }
         }

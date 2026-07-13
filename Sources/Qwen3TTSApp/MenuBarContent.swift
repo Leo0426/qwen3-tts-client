@@ -9,7 +9,9 @@ struct MenuBarContent: View {
         Button(model.isSpeaking ? "停止朗读" : "朗读剪贴板") {
             model.toggleSpeakClipboard()
         }
-        Text("全局快捷键：⌃⌥⌘S")
+        if !model.settings.speakShortcut.isDisabled {
+            Text("全局快捷键：\(model.settings.speakShortcut.label)")
+        }
         Divider()
         Button("打开 Qwen3 TTS") {
             openWindow(id: "main")

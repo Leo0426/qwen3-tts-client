@@ -5,6 +5,7 @@ import TTSCore
 struct DesignVoiceSheet: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
 
     @State private var name = ""
     @State private var prompt = ""
@@ -23,10 +24,27 @@ struct DesignVoiceSheet: View {
             newDesignForm
 
             if let error = model.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.top, 8)
+                HStack(spacing: 8) {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    if model.errorNeedsDownloadCenter {
+                        Button("去下载") {
+                            openWindow(id: "model-downloads")
+                        }
+                        .controlSize(.small)
+                    }
+                    Spacer()
+                    Button {
+                        model.clearError()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("关闭提示")
+                }
+                .padding(.top, 8)
             }
 
             HStack {
