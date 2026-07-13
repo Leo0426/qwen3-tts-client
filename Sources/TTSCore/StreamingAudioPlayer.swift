@@ -1,9 +1,12 @@
 import AVFoundation
 import Foundation
+import Observation
 
 /// 流式播放引擎：消费 AudioChunk 流，音频到达即出声。
 /// 隐藏 AVAudioEngine 的调度细节；同时累积全部样本供重播和导出。
+/// @Observable：state/samples 驱动 UI（如播放结束时按钮复位）。
 @MainActor
+@Observable
 public final class StreamingAudioPlayer {
     public enum State: Equatable {
         case idle
@@ -17,11 +20,11 @@ public final class StreamingAudioPlayer {
     public private(set) var samples: [Float] = []
     public private(set) var sampleRate: Double = 24_000
 
-    private let engine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
+    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private let playerNode = AVAudioPlayerNode()
     /// 变速不变调（0.5×~2×）
-    private let timePitch = AVAudioUnitTimePitch()
-    private var format: AVAudioFormat?
+    @ObservationIgnored private let timePitch = AVAudioUnitTimePitch()
+    @ObservationIgnored private var format: AVAudioFormat?
 
     /// 播放速度；对正在播放的音频立即生效
     public var rate: Float = 1.0 {
@@ -32,14 +35,14 @@ public final class StreamingAudioPlayer {
         }
     }
     /// 尚未播完的已调度 buffer 数；归零且流已结束 → finished
-    private var pendingBuffers = 0
-    private var streamEnded = false
-    private var attached = false
+    @ObservationIgnored private var pendingBuffers = 0
+    @ObservationIgnored private var streamEnded = false
+    @ObservationIgnored private var attached = false
     /// 调度代际号：stop/seek/replay 后旧 buffer 的完成回调异步补刀，
     /// 代际不匹配的回调直接作废，避免打乱新一轮的计数
-    private var scheduleGeneration = 0
+    @ObservationIgnored private var scheduleGeneration = 0
     /// seek 后的进度基准（playerNode 的 sampleTime 在重新 play 后从 0 计）
-    private var playbackBaseOffset: TimeInterval = 0
+    @ObservationIgnored private var playbackBaseOffset: TimeInterval = 0
 
     public init() {}
 
