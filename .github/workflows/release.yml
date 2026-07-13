@@ -17,6 +17,19 @@ jobs:
         with:
           fetch-depth: 0 # 打包脚本用 git describe 取版本号
 
+      # mlx-audio-swift 要求 swift-tools 6.2（Xcode 26），runner 默认 Xcode 版本不够
+      - name: 选择 Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [[ -z "$XCODE" ]]; then
+            echo "未找到 Xcode 26，镜像可用版本："
+            ls /Applications | grep -i xcode
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
+          swift --version
+
       - name: 缓存 SPM 依赖
         uses: actions/cache@v4
         with:
